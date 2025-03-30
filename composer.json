@@ -1,0 +1,30 @@
+{
+    "name": "dagasmart/task-schedule",
+    "description": "更灵活地管理应用中的任务调度",
+    "keywords": [
+        "laravel","schedule"
+    ],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "dagasmart",
+            "email": "dagasmart@qq.com"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "DagaSmart\\TaskSchedule\\": "src"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "DagaSmart\\TaskSchedule\\TaskScheduleServiceProvider"
+            ]
+        }
+    },
+    "require-dev": {
+        "orchestra/testbench": "^6.5",
+        "phpunit/phpunit": "^9.5"
+    }
+}
