@@ -50,7 +50,7 @@ class TaskScheduleServiceProvider extends ServiceProvider
 
     protected function setupConfig(): void
     {
-        $configPath = dirname(__DIR__, 2).'/config/schedule.php';
+        $configPath = dirname(__DIR__, 1).'/config/schedule.php';
 
         if ($this->app->runningInConsole()) {
             $this->publishes([$configPath => config_path('schedule.php')], 'schedule');
@@ -62,7 +62,7 @@ class TaskScheduleServiceProvider extends ServiceProvider
     protected function setupMigration(): void
     {
         $this->publishes([
-            __DIR__.'/../../database/migrations/create_schedules_table.php.stub' => database_path('migrations/'.date('Y_m_d_His').'_create_schedules_table.php'),
+            dirname(__DIR__, 1) . '/database/migrations/create_schedules_table.php.stub' => database_path('migrations/'.date('Y_m_d_His').'_create_schedules_table.php'),
         ], 'migrations');
     }
 
