@@ -2,13 +2,6 @@
 
 > ⏱ More flexible way to manage your Laravel schedule tasks. - 更灵活地管理 Laravel 应用中的任务调度。
 
-![StyleCI](https://github.styleci.io/repos/377056763/shield?style=flat&branch=main)
-[![Latest Stable Version](http://poser.pugx.org/dagasmart/task-schedule/v)](https://packagist.org/packages/dagasmart/task-schedule)
-[![Total Downloads](http://poser.pugx.org/dagasmart/task-schedule/downloads)](https://packagist.org/packages/dagasmart/task-schedule)
-[![Monthly Downloads](http://poser.pugx.org/dagasmart/task-schedule/d/monthly)](https://packagist.org/packages/dagasmart/task-schedule)
-[![Version](http://poser.pugx.org/dagasmart/task-schedule/version)](https://packagist.org/packages/dagasmart/task-schedule)
-[![License](http://poser.pugx.org/dagasmart/task-schedule/license)](https://packagist.org/packages/dagasmart/task-schedule)
-
 ## 社区讨论文章
 
 - [教你更优雅地写 API 之「路由设计」](https://learnku.com/articles/45526)
