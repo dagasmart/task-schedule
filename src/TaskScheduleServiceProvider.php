@@ -67,6 +67,8 @@ class TaskScheduleServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        parent::boot();
+
         $this->extendValidationRules();
 
         $this->setupConfig();
