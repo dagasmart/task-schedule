@@ -1,6 +1,6 @@
 <?php
 
-use Dagasmart\TaskSchedule\Http\Controllers;
+use DagaSmart\TaskSchedule\Http\Controllers;
 use Illuminate\Support\Facades\Route;
 
 Route::get('task-schedule', [Controllers\TaskScheduleController::class, 'index']);

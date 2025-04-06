@@ -18,15 +18,14 @@
     },
     "autoload": {
         "psr-4": {
-            "Dagasmart\\TaskSchedule\\": "src/"
+            "DagaSmart\\TaskSchedule\\": "src/"
         }
     },
     "extra": {
-        "bizadmin": "Dagasmart\\TaskSchedule\\TaskScheduleServiceProvider",
+        "bizadmin": "DagaSmart\\TaskSchedule\\TaskScheduleServiceProvider",
         "laravel": {
             "providers": [
-                "Dagasmart\\TaskSchedule\\ScheduleServiceProvider",
-                "Dagasmart\\TaskSchedule\\TaskScheduleServiceProvider"
+                "DagaSmart\\TaskSchedule\\TaskScheduleServiceProvider"
             ]
         }
     },

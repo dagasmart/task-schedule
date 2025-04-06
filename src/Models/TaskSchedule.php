@@ -1,6 +1,6 @@
 <?php
 
-namespace Dagasmart\TaskSchedule\Models;
+namespace DagaSmart\TaskSchedule\Models;
 
 use DagaSmart\BizAdmin\Models\BaseModel as Model;
 use Illuminate\Database\Eloquent\Builder;
@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class TaskSchedule extends Model
 {
+    public $table = 'task_schedule';
 
     protected $fillable = [
         'description', 'command', 'parameters', 'expression', 'active', 'timezone',

@@ -1,10 +1,10 @@
 <?php
 
-namespace Dagasmart\TaskSchedule\Http\Controllers;
+namespace DagaSmart\TaskSchedule\Http\Controllers;
 
 use DagaSmart\BizAdmin\Renderers\Form;
 use DagaSmart\BizAdmin\Renderers\Page;
-use Dagasmart\TaskSchedule\Services\TaskScheduleService;
+use DagaSmart\TaskSchedule\Services\TaskScheduleService;
 use DagaSmart\BizAdmin\Controllers\AdminController;
 
 /**

@@ -1,9 +1,9 @@
 <?php
 
-namespace Dagasmart\TaskSchedule\Services;
+namespace DagaSmart\TaskSchedule\Services;
 
 use Illuminate\Database\Query\Builder;
-use Dagasmart\TaskSchedule\Models\TaskSchedule;
+use DagaSmart\TaskSchedule\Models\TaskSchedule;
 use DagaSmart\BizAdmin\Services\AdminService;
 
 /**

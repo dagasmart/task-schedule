@@ -32,6 +32,7 @@ class CreateSchedulesTable extends Migration
             $table->boolean('output_append')->default(false)->comment('输出到文件时是否进行追加');
             $table->string('output_email')->nullable()->comment('输出发送邮件');
             $table->boolean('output_email_on_failure')->default(false)->comment('执行失败时发送输出到邮件');
+            $table->string('module')->nullable()->comment('模块');
             $table->string('oper_id')->default(0)->comment('发布人id');
             $table->string('oper_as')->nullable()->comment('发布人');
             $table->timestamps();
@@ -39,6 +40,7 @@ class CreateSchedulesTable extends Migration
             $table->index('id');
             $table->index('active');
             $table->index('command');
+            $table->unique(['group_name', 'module']);
         });
     }
 
