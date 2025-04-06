@@ -1,9 +1,9 @@
 <?php
 
 return [
-    'table' => 'basic_schedules',
+    'table' => 'task_schedule',
 
-    'model' => \DagaSmart\TaskSchedule\Models\BasicSchedule::class,
+    'model' => \DagaSmart\TaskSchedule\Models\TaskSchedule::class,
 
     'output' => [
         'path' => storage_path('logs'),

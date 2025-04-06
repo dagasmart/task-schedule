@@ -1,9 +1,10 @@
 {
     "name": "dagasmart/task-schedule",
+    "alias": "任务调度",
     "description": "更灵活地管理应用中的任务调度",
-    "keywords": [
-        "laravel","schedule"
-    ],
+    "type": "library",
+    "keywords": ["bizadmin", "extension","laravel","schedule"],
+    "homepage": "https://github.com/dagasmart/task-schedule",
     "license": "MIT",
     "authors": [
         {
@@ -11,15 +12,21 @@
             "email": "dagasmart@qq.com"
         }
     ],
+    "require": {
+        "php": ">=8.0",
+        "dagasmart/bizadmin": "*"
+    },
     "autoload": {
         "psr-4": {
-            "DagaSmart\\TaskSchedule\\": "src"
+            "Dagasmart\\TaskSchedule\\": "src/"
         }
     },
     "extra": {
+        "bizadmin": "Dagasmart\\TaskSchedule\\TaskScheduleServiceProvider",
         "laravel": {
             "providers": [
-                "DagaSmart\\TaskSchedule\\TaskScheduleServiceProvider"
+                "Dagasmart\\TaskSchedule\\ScheduleServiceProvider",
+                "Dagasmart\\TaskSchedule\\TaskScheduleServiceProvider"
             ]
         }
     },

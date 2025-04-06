@@ -2,6 +2,8 @@
 namespace DagaSmart\TaskSchedule\Commands;
 
 use Illuminate\Console\Command as IlluminateCommand;
+use Illuminate\Foundation\Bus\PendingClosureDispatch;
+use Illuminate\Foundation\Bus\PendingDispatch;
 use Illuminate\Support\Facades\Config;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Process\Process;
@@ -36,12 +38,11 @@ abstract class Command extends IlluminateCommand
     }
 
     /**
-     * 调度 Job.
-     *
-     * @param  mixed  $job
-     * @return \Laravel\Lumen\Bus\PendingDispatch|mixed
+     * 调度 Job
+     * @param mixed $job
+     * @return PendingClosureDispatch|PendingDispatch
      */
-    protected function dispatch($job)
+    protected function dispatch(mixed $job): PendingClosureDispatch|PendingDispatch
     {
         $pendingDispatch = dispatch($job);
 
