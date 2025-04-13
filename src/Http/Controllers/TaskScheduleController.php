@@ -27,7 +27,7 @@ class TaskScheduleController extends AdminController
             ->autoFillHeight(true)
 			->columns([
 				amis()->TableColumn('id', 'ID')->sortable()->fixed('left'),
-				amis()->TableColumn('description', '任务描述')->width(200)->fixed('left'),
+				amis()->TableColumn('task_name', '任务名称')->width(200)->fixed('left'),
 				amis()->TableColumn('command', '任务命令')->width(300),
 				amis()->TableColumn('parameters', '执行参数'),
 				amis()->TableColumn('expression', '执行时间')->width(150),
@@ -53,21 +53,49 @@ class TaskScheduleController extends AdminController
 	public function form($isEdit = false): Form
     {
 		return $this->baseForm()->mode('normal')->body([
-			amis()->TextControl('description', '任务描述'),
-			amis()->TextControl('command', '任务命令'),
-			amis()->TextControl('parameters', '执行参数'),
-			amis()->TextControl('expression', '执行时间'),
-			amis()->SwitchControl('active', '任务状态'),
-			amis()->TextControl('timezone', '时区'),
-			amis()->TextControl('environments', '环境设置'),
-			amis()->TextControl('without_overlapping', '是否重复执行'),
-			amis()->SwitchControl('on_one_server', '是否当前服务器'),
-			amis()->SwitchControl('in_background', '是否后台运行'),
-			amis()->SwitchControl('in_maintenance_mode', '是否维护模式'),
-			amis()->TextControl('output_file_path', '输出的文件路径'),
-			amis()->TextControl('output_append', '输出追加'),
-			amis()->TextControl('output_email', '输出发送邮件'),
-			amis()->TextControl('output_email_on_failure', '失败发送邮件'),
+            amis()->Tabs()->tabsMode('line')->className('rounded')->tabs([
+                // 字段信息
+                amis()->Tab()->title('基本信息')->body([
+                    amis()->Card()->body([
+                        amis()->GroupControl()->direction('vertical')->body([
+                            amis()->TextControl('task_name', '任务名称'),
+                            amis()->TextareaControl('command', '任务命令'),
+                            amis()->TextareaControl('parameters', '执行参数'),
+                            amis()->TextControl('expression', '执行时间，cron格式：*/1 * * * *'),
+                            amis()->SwitchControl('active', '任务状态'),
+                        ]),
+                    ]),
+                ]),
+                // 字段信息
+                amis()->Tab()->title('任务描述')->body([
+                    amis()->Card()->body([
+                        amis()->GroupControl()->direction('vertical')->body([
+                            amis()->TextareaControl('description', '任务描述'),
+                            amis()->SelectControl('timezone', '时区')
+                                ->options(timezone_identifiers_list())
+                                ->value(date_default_timezone_get())
+                                ->searchable(),
+                            amis()->RadiosControl('environments', '环境设置')
+                                ->options(['windows', 'linux'])->value('linux'),
+                            amis()->SwitchControl('without_overlapping', '是否重复执行'),
+                            amis()->SwitchControl('on_one_server', '是否当前服务器'),
+                        ]),
+                    ]),
+                ]),
+                // 字段信息
+                amis()->Tab()->title('运维信息')->body([
+                    amis()->Card()->body([
+                        amis()->GroupControl()->direction('vertical')->body([
+                            amis()->SwitchControl('in_background', '是否后台运行'),
+                            amis()->SwitchControl('in_maintenance_mode', '是否维护模式'),
+                            amis()->TextControl('output_file_path', '输出的文件路径'),
+                            amis()->SwitchControl('output_append', '输出追加'),
+                            amis()->TextControl('output_email', '输出发送邮件'),
+                            amis()->SwitchControl('output_email_on_failure', '失败发送邮件'),
+                        ]),
+                    ]),
+                ]),
+            ])
 		]);
 	}
 

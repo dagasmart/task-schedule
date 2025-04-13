@@ -31,16 +31,9 @@ class TaskScheduleServiceProvider extends ServiceProvider
         [
             'parent' => NULL,
             'title' => '任务调度',
-            'url' => '/schedule',
+            'url' => '/task-schedule',
             'url_type' => 1,
             'icon' => 'carbon:event-schedule',
-        ],
-        [
-            'parent' => '任务调度',
-            'title' => '任务分组',
-            'url' => '/task-schedule/group',
-            'url_type' => 1,
-            'icon' => 'mdi-light:folder-multiple',
         ],
         [
             'parent' => '任务调度',
@@ -48,6 +41,13 @@ class TaskScheduleServiceProvider extends ServiceProvider
             'url' => '/task-schedule/index',
             'url_type' => 1,
             'icon' => 'mdi-light:console',
+        ],
+        [
+            'parent' => '任务调度',
+            'title' => '任务分组',
+            'url' => '/task-schedule/group',
+            'url_type' => 1,
+            'icon' => 'mdi-light:folder-multiple',
         ],
         [
             'parent' => '任务调度',
@@ -112,9 +112,9 @@ class TaskScheduleServiceProvider extends ServiceProvider
     protected function setupMigration(): void
     {
         $this->publishes([
-            dirname(__DIR__, 1) . '/database/migrations/create_task_schedule_table.php.stub' => database_path('migrations/'.date('Y_m_d_His').'_create_task_schedules_table.php'),
-            dirname(__DIR__, 1) . '/database/migrations/create_task_schedule_group_table.php.stub' => database_path('migrations/'.date('Y_m_d_His').'_create_task_schedules_group_table.php'),
-            dirname(__DIR__, 1) . '/database/migrations/create_task_schedule_log_table.php.stub' => database_path('migrations/'.date('Y_m_d_His').'_create_task_schedules_log_table.php'),
+            dirname(__DIR__, 1) . '/database/migrations/create_task_schedule_table.php.stub' => database_path('migrations/'.date('Y_m_d_His').'_create_task_schedule_table.php'),
+            dirname(__DIR__, 1) . '/database/migrations/create_task_schedule_group_table.php.stub' => database_path('migrations/'.date('Y_m_d_His').'_create_task_schedule_group_table.php'),
+            dirname(__DIR__, 1) . '/database/migrations/create_task_schedule_log_table.php.stub' => database_path('migrations/'.date('Y_m_d_His').'_create_task_schedule_log_table.php'),
         ], 'migrations');
     }
 
