@@ -1,14 +1,7 @@
 # task-schedule任务调度
 
-> ⏱ More flexible way to manage your Laravel schedule tasks. - 更灵活地管理 Laravel 应用中的任务调度。
+> ⏱ 更灵活地管理 Laravel 应用中的任务调度。
 
-## 社区讨论文章
-
-- [教你更优雅地写 API 之「路由设计」](https://learnku.com/articles/45526)
-- [教你更优雅地写 API 之「规范响应数据」](https://learnku.com/articles/52784)
-- [教你更优雅地写 API 之「枚举使用」](https://learnku.com/articles/53015)
-- [教你更优雅地写 API 之「记录日志」](https://learnku.com/articles/53669)
-- [教你更优雅地写 API 之「灵活地任务调度」](https://learnku.com/articles/58403)
 
 ## 功能
 
