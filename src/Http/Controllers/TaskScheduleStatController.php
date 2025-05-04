@@ -4,17 +4,17 @@ namespace DagaSmart\TaskSchedule\Http\Controllers;
 
 use DagaSmart\BizAdmin\Renderers\Form;
 use DagaSmart\BizAdmin\Renderers\Page;
-use DagaSmart\TaskSchedule\Services\TaskScheduleService;
+use DagaSmart\TaskSchedule\Services\TaskScheduleGroupService;
 use DagaSmart\BizAdmin\Controllers\AdminController;
 
 /**
  * 任务调度表
  *
- * @property TaskScheduleService $service
+ * @property TaskScheduleGroupService $service
  */
-class TaskScheduleController extends AdminController
+class TaskScheduleStatController extends AdminController
 {
-	protected string $serviceName = TaskScheduleService::class;
+	protected string $serviceName = TaskScheduleGroupService::class;
 
 	public function list(): Page
     {

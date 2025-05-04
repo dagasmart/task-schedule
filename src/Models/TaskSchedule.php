@@ -13,9 +13,10 @@ class TaskSchedule extends Model
     public $table = 'task_schedule';
 
     protected $fillable = [
-        'description', 'command', 'parameters', 'expression', 'active', 'timezone',
+        'task_name', 'description', 'command', 'parameters', 'expression', 'active', 'timezone',
         'environments', 'without_overlapping', 'on_one_server', 'in_background', 'in_maintenance_mode',
         'output_file_path', 'output_append', 'output_email', 'output_email_on_failure',
+        'group_id', 'module', 'oper_id', 'oper_as',
     ];
 
     protected $casts = [
