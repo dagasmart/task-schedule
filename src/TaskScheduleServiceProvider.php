@@ -74,7 +74,7 @@ class TaskScheduleServiceProvider extends ServiceProvider
         $this->setupConfig();
 
         if ($this->app->runningInConsole()) {
-            $this->setupMigration();
+            //$this->setupMigration(); //建表
 
             $this->listenEvents();
 
