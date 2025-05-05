@@ -12,6 +12,8 @@ class TaskSchedule extends Model
 {
     public $table = 'task_schedule';
 
+    protected $appends = ['group_as'];
+
     protected $fillable = [
         'task_name', 'description', 'command', 'parameters', 'expression', 'active', 'timezone',
         'environments', 'without_overlapping', 'on_one_server', 'in_background', 'in_maintenance_mode',
@@ -37,6 +39,32 @@ class TaskSchedule extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('active', 1);
+    }
+
+    public function getGroupAsAttribute()
+    {
+        return TaskScheduleGroup::query()->where('id', $this->group_id)->value('group_name');
+    }
+
+    /**
+     * 获取任务分组
+     * @return \Illuminate\Database\Eloquent\Collection
+     */
+    public function getGroups()
+    {
+        return TaskScheduleGroup::query()->get(['id', 'group_name']);
+    }
+
+    /**
+     * 状态
+     * @return array
+     */
+    public function statusOption()
+    {
+        return [
+            ['label' => '暂停下线', 'value' => 0],
+            ['label' => '正常上线', 'value' => 1]
+        ];
     }
 
 }

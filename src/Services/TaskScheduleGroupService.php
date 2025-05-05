@@ -15,4 +15,14 @@ use DagaSmart\BizAdmin\Services\AdminService;
 class TaskScheduleGroupService extends AdminService
 {
 	protected string $modelName = TaskScheduleGroup::class;
+
+    public function sortable($query)
+    {
+        if (request()->orderBy) {
+            parent::sortable($query);
+        } else {
+            $query->orderBy($this->primaryKey());
+        }
+    }
+
 }
