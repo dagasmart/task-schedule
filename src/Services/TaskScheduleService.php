@@ -55,7 +55,10 @@ class TaskScheduleService extends AdminService
      */
     public function saving(&$data, $primaryKey = '')
     {
-        $data['oper_id'] = admin_user()->id;
-        $data['oper_as'] = admin_user()->name;
+        $admin = admin_user();
+        admin_abort_if(!$admin, '请先登录');
+
+        $data['oper_id'] = $admin->id;
+        $data['oper_as'] = $admin->name;
     }
 }
