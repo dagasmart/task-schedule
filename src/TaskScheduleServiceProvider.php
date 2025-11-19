@@ -134,7 +134,7 @@ class TaskScheduleServiceProvider extends ServiceProvider
         }
 
         $schedules->each(function ($item) use ($schedule, $commands) {
-            $event = $schedule->command($item->command.' '.$item->parameters);
+            $event = $schedule->command($item->command . ' ' . $item->parameters);
             $event->cron($item->expression)
                 ->name($item->description)
                 ->timezone($item->timezone);
@@ -146,36 +146,36 @@ class TaskScheduleServiceProvider extends ServiceProvider
                 }
             }
 
-            if ($item->environments) {
-                $event->environments($item->environments);
-            }
+            //if (!empty($item->environments)) {
+            //    $event->environments($item->environments);
+            //}
 
-            if ($item->without_overlapping) {
+            if (!empty($item->without_overlapping)) {
                 $event->withoutOverlapping($item->without_overlapping);
             }
 
-            if ($item->on_one_server) {
+            if (!empty($item->on_one_server)) {
                 $event->onOneServer();
             }
 
-            if ($item->in_background) {
+            if (!empty($item->in_background)) {
                 $event->runInBackground();
             }
 
-            if ($item->in_maintenance_mode) {
+            if (!empty($item->in_maintenance_mode)) {
                 $event->evenInMaintenanceMode();
             }
 
-            if ($item->output_file_path) {
-                if ($item->output_append) {
+            if (!empty($item->output_file_path)) {
+                if (!empty($item->output_append)) {
                     $event->appendOutputTo(Config::get('schedule.output.path').Str::start($item->output_file_path, DIRECTORY_SEPARATOR));
                 } else {
                     $event->sendOutputTo(Config::get('schedule.output.path').Str::start($item->output_file_path, DIRECTORY_SEPARATOR));
                 }
             }
 
-            if ($item->output_email) {
-                if ($item->output_email_on_failure) {
+            if (!empty($item->output_email)) {
+                if (!empty($item->output_email_on_failure)) {
                     $event->emailOutputOnFailure($item->output_email);
                 } else {
                     $event->emailOutputTo($item->output_email);
