@@ -146,9 +146,10 @@ class TaskScheduleServiceProvider extends ServiceProvider
                 }
             }
 
-            //if (!empty($item->environments)) {
-            //    $event->environments($item->environments);
-            //}
+            if (!empty($item->environments)) {
+                //\Illuminate\Support\Facades\App::environment();
+                $event->environments($item->environments);
+            }
 
             if (!empty($item->without_overlapping)) {
                 $event->withoutOverlapping($item->without_overlapping);

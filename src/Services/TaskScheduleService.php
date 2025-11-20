@@ -37,6 +37,15 @@ class TaskScheduleService extends AdminService
     }
 
     /**
+     * 环境列表
+     * @return array
+     */
+    public function envOption()
+    {
+        return ['local' => '本地环境', 'development' => '开发环境', 'testing' => '测试环境', 'production' => '生产环境'];
+    }
+
+    /**
      * 状态
      * @return array
      */
@@ -44,7 +53,6 @@ class TaskScheduleService extends AdminService
     {
         return $this->getModel()->statusOption();
     }
-
 
     /**
      * 保存前
@@ -61,4 +69,18 @@ class TaskScheduleService extends AdminService
         $data['oper_id'] = $admin->id;
         $data['oper_as'] = $admin->name;
     }
+
+    /**
+     * 立即执行
+     * @param $id
+     * @return bool
+     */
+    public function execute($id): bool
+    {
+        $command = $this->getModel()->where('id', $id)->value('command');
+        admin_abort_if(!$command, '此项任务不存在');
+        return (bool) \Illuminate\Support\Facades\Artisan::call($command);
+    }
+
+
 }

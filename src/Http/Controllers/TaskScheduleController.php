@@ -6,6 +6,10 @@ use DagaSmart\BizAdmin\Renderers\Form;
 use DagaSmart\BizAdmin\Renderers\Page;
 use DagaSmart\TaskSchedule\Services\TaskScheduleService;
 use DagaSmart\BizAdmin\Controllers\AdminController;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Schedule;
 
 /**
  * 任务调度表
@@ -58,7 +62,10 @@ class TaskScheduleController extends AdminController
                     ->searchable(['type'=>'checkboxes', 'options'=>$this->service->statusOption(), 'size'=>'sm'])
                     ->set('type','switch'),
 				amis()->TableColumn('timezone', '时区'),
-				amis()->TableColumn('environments', '环境设置'),
+				amis()->TableColumn('environments', '环境设置')
+                    ->set('type', 'input-tag')
+                    ->set('options', $this->service->envOption())
+                    ->set('static', true),
 				amis()->TableColumn('without_overlapping', '是否重复执行')->set('type','switch'),
 				amis()->TableColumn('on_one_server', '是否当前服务器')->set('type','switch'),
 				amis()->TableColumn('in_background', '是否后台运行')->set('type','switch'),
@@ -73,7 +80,9 @@ class TaskScheduleController extends AdminController
                     $this->rowShowButton('drawer'),
                     $this->rowEditButton('drawer'),
                     $this->rowDeleteButton(),
-                ])->set('width',180)->fixed('right')
+                    $this->rowExecuteButton(),
+                    $this->rowLogButton(),
+                ])->set('width',150)->fixed('right')
 			]);
 
 		return $this->baseList($crud);
@@ -119,10 +128,11 @@ class TaskScheduleController extends AdminController
                                 ->value(date_default_timezone_get())
                                 ->labelClassName('font-bold text-secondary')
                                 ->searchable(),
-                            amis()->RadiosControl('environments', '环境设置')
-                                ->options(['windows', 'linux'])
-                                ->value('linux')
-                                ->labelClassName('font-bold text-secondary'),
+                            amis()->TagControl('environments', '环境设置')
+                                ->options($this->service->envOption())
+                                ->value(\Illuminate\Support\Facades\App::environment())
+                                ->labelClassName('font-bold text-secondary')
+                                ->required(),
                             amis()->SwitchControl('without_overlapping', '是否重复执行')
                                 ->onText('是')->offText('否')
                                 ->labelClassName('font-bold text-secondary'),
@@ -190,4 +200,62 @@ class TaskScheduleController extends AdminController
             ]),
 		]);
 	}
+
+    private function rowExecuteButton()
+    {
+        return amis()
+            ->DialogAction()
+            ->label('执行')
+            ->level('link')
+            ->className('text-primary')
+            ->dialog(
+                amis()
+                    ->Dialog()
+                    ->title()
+                    ->className('py-2')
+                    ->body([
+                        amis()->Form()->wrapWithPanel(false)->api(admin_url('task-schedule/${id}/execute'))->body([
+                            amis()->Tpl()->className('py-2')->tpl('是否立即执行【<b class="text-danger">${task_name}</b>】此项任务?'),
+                        ]),
+                    ])
+            );
+    }
+
+    private function rowLogButton()
+    {
+        return amis()
+            ->DialogAction()
+            ->label('日志')
+            ->level('link')
+            ->className('text-dark')
+            ->dialog(
+                amis()
+                    ->Dialog()
+                    ->title()
+                    ->className('py-2')
+                    ->actions([
+                        amis()->Action()->actionType('cancel')->label(admin_trans('admin.cancel')),
+                        amis()->Action()->actionType('submit')->label(admin_trans('admin.delete'))->level('danger'),
+                    ])
+                    ->body([
+                        amis()->Form()->wrapWithPanel(false)->api($this->getDeletePath())->body([
+                            amis()->Tpl()->className('py-2')->tpl('是否立即执行任务?'),
+                        ]),
+                    ])
+            );
+    }
+
+    /**
+     * 立即执行
+     * @param $id
+     * @return JsonResponse|JsonResource
+     */
+    public function execute(Request $request): JsonResponse|JsonResource
+    {
+        admin_abort_if(!$request->isMethod('post'), '非法请求');
+        admin_abort_if(!$request->id, '此项任务不存在');
+        $res = $this->service->execute($request->id);
+        admin_abort_if(!$res, '执行失败');
+        return $this->response()->successMessage('执行成功，稍候查看日志');
+    }
 }
