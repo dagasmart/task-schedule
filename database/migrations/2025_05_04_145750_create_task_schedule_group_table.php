@@ -17,15 +17,15 @@ class CreateTaskScheduleGroupTable extends Migration
         Schema::create(Config::get('schedule.group', 'task_schedule_group'), function (Blueprint $table) {
             $table->comment('任务分组表');
             $table->id();
-            $table->string('group_name')->nullable()->comment('分组名称');
+            $table->string('group_name')->comment('分组名称');
             $table->string('description')->nullable()->comment('分组描述');
             $table->integer('sort')->default(0)->comment('排序[0-255]');
-            $table->string('module')->nullable()->comment('模块id');
+            $table->string('parent_id')->nullable()->comment('上级分组');
             $table->timestamps();
 
             $table->index('id');
-            $table->index('module');
-            $table->unique(['group_name', 'module']);
+            $table->index('parent_id');
+            $table->unique(['group_name', 'parent_id']);
         });
     }
 

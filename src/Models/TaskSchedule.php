@@ -52,7 +52,9 @@ class TaskSchedule extends Model
      */
     public function getGroups()
     {
-        return TaskScheduleGroup::query()->get(['id', 'group_name']);
+        return TaskScheduleGroup::query()
+            ->select(['id','id as value', 'group_name as label','parent_id'])
+            ->get();
     }
 
     /**

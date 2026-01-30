@@ -33,7 +33,7 @@ class TaskScheduleService extends AdminService
     public function getGroups()
     {
         $data = $this->getModel()->getGroups()->toArray();
-        return array_column($data,'group_name','id');
+        return array2tree($data);
     }
 
     /**

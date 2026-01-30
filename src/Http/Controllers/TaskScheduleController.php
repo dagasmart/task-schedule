@@ -52,8 +52,13 @@ class TaskScheduleController extends AdminController
 				amis()->TableColumn('task_name', '任务名称')->width(200)
                     ->searchable()
                     ->fixed('left'),
-                amis()->TableColumn('group_as', '任务分组')
+                amis()->TableColumn('group_id', '任务分组')
                     ->searchable(['name' => 'group_id', 'type'=>'checkboxes', 'options'=>$this->service->getGroups(), 'size'=>'sm'])
+                    ->set('type', 'static-select')
+                    ->set('options', $this->service->getGroups())
+                    ->set('labelField', 'level_name')
+                    ->set('textOverflow', 'noWrap')
+                    ->set('static', true)
                     ->width(100),
 				amis()->TableColumn('command', '任务命令')->width(300),
 				amis()->TableColumn('parameters', '执行参数'),
@@ -96,9 +101,10 @@ class TaskScheduleController extends AdminController
                 amis()->Tab()->title('基本信息')->body([
                     //amis()->Card()->body([
                         amis()->GroupControl()->direction('vertical')->className('p-5')->body([
-                            amis()->SelectControl('group_id', '任务分组')
+                            amis()->TreeSelectControl('group_id', '任务分组')
                                 ->options($this->service->getGroups())
                                 ->labelClassName('font-bold text-secondary')
+                                ->onlyLeaf()
                                 ->required(),
                             amis()->TextControl('task_name', '任务名称')
                                 ->labelClassName('font-bold text-secondary')
@@ -176,7 +182,10 @@ class TaskScheduleController extends AdminController
                 amis()->Tab()->title('基本信息')->body([
                     amis()->TextControl('id', 'ID')->static(),
                     amis()->TextControl('task_name', '任务名称')->static(),
-                    amis()->TextControl('group_as', '任务分组')->static(),
+                    amis()->TreeSelectControl('group_id', '任务分组')
+                        ->options($this->service->getGroups())
+                        ->labelField('level_name')
+                        ->static(),
                     amis()->TextControl('command', '任务命令')->static(),
                     amis()->TextControl('parameters', '执行参数')->static(),
                     amis()->TextControl('expression', '执行时间')->static(),
