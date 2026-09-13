@@ -86,6 +86,7 @@ class TaskScheduleController extends AdminController
                     $this->rowEditButton('drawer'),
                     $this->rowDeleteButton(),
                     $this->rowExecuteButton(),
+                    $this->rowStatButton(),
                     $this->rowLogButton(),
                 ])->set('width',150)->fixed('right')
 			]);
@@ -217,6 +218,26 @@ class TaskScheduleController extends AdminController
         return amis()
             ->DialogAction()
             ->label('执行')
+            ->level('link')
+            ->className('text-primary')
+            ->dialog(
+                amis()
+                    ->Dialog()
+                    ->title()
+                    ->className('py-2')
+                    ->body([
+                        amis()->Form()->wrapWithPanel(false)->api(admin_url('task-schedule/${id}/execute'))->body([
+                            amis()->Tpl()->className('py-2')->tpl('是否立即执行【<b class="text-danger">${task_name}</b>】此项任务?'),
+                        ]),
+                    ])
+            );
+    }
+
+    private function rowStatButton()
+    {
+        return amis()
+            ->DialogAction()
+            ->label('分析')
             ->level('link')
             ->className('text-primary')
             ->dialog(
