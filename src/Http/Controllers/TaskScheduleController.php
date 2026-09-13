@@ -138,6 +138,8 @@ class TaskScheduleController extends AdminController
                                 ->options($this->service->envOption())
                                 ->value(\Illuminate\Support\Facades\App::environment())
                                 ->labelClassName('font-bold text-secondary')
+                                ->extractValue()
+                                ->joinValues(false)
                                 ->required(),
                             amis()->SwitchControl('without_overlapping', '是否重复执行')
                                 ->onText('是')->offText('否')

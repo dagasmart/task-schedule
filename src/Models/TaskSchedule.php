@@ -18,11 +18,12 @@ class TaskSchedule extends Model
         'task_name', 'description', 'command', 'parameters', 'expression', 'active', 'timezone',
         'environments', 'without_overlapping', 'on_one_server', 'in_background', 'in_maintenance_mode',
         'output_file_path', 'output_append', 'output_email', 'output_email_on_failure',
-        'group_id', 'module', 'oper_id', 'oper_as',
+        'group_id', 'module', 'creator_id', 'creator',
     ];
 
     protected $casts = [
         'active' => 'boolean',
+        'environments' => 'array',
         'on_one_server' => 'boolean',
         'in_background' => 'boolean',
         'in_maintenance_mode' => 'boolean',

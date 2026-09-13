@@ -66,8 +66,8 @@ class TaskScheduleService extends AdminService
         $admin = admin_user();
         admin_abort_if(!$admin, '请先登录');
 
-        $data['oper_id'] = $admin->id;
-        $data['oper_as'] = $admin->name;
+        $data['creator_id'] = $admin->id;
+        $data['creator'] = $admin->name;
     }
 
     /**
