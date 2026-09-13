@@ -134,7 +134,17 @@ class TaskScheduleServiceProvider extends ServiceProvider
         }
 
         $schedules->each(function ($item) use ($schedule, $commands) {
-            $event = $schedule->command($item->command . ' ' . $item->parameters);
+            // ✅ command 为空时跳过
+            if (empty(trim((string) $item->command ?? ''))) {
+                return;
+            }
+            // ✅ 过滤 php artisan 前缀，避免重复拼接
+            $command = trim((string) $item->command ?? '');
+            $command = preg_replace('/^php\s+artisan\s+/i', '', $command);
+            $params  = trim($item->parameters ?? '');
+            $command = $command . ($params ? ' ' . $params : '');
+
+            $event = $schedule->command($command);
             $event->cron($item->expression)
                 ->name($item->description)
                 ->timezone($item->timezone);
