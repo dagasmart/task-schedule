@@ -37,7 +37,7 @@ class CreateTaskScheduleTable extends Migration
             $table->integer('creator_id')->default(0)->comment('发布人id');
             $table->string('creator', 32)->nullable()->comment('发布人');
             $table->string('module', 32)->nullable()->comment('模块');
-            $table->bigIncrements('mer_id')->nullable()->comment('商户');
+            $table->unsignedBigInteger('mer_id')->nullable()->comment('商户');
             $table->timestamps();
 
             $table->index('id');
