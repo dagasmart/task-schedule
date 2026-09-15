@@ -71,6 +71,24 @@ INSERT INTO `schedules` (`id`, `description`, `command`, `parameters`, `expressi
 
 - 重启应用程序中的 `php artisan schedule:run`
 
+- 或重启supervisor进程守护工具，/xp/server/supervisor/conf.d/创建.conf,保存如下脚本：
+
+```shell 
+[program:ccs_dagasmart_com]
+command=/xp/server/php/php-8.5/bin/php artisan schedule:work
+directory=/xp/www/ccs.dagasmart.com
+autorestart=true
+startsecs=3
+startretries=3
+stdout_logfile=/xp/server/supervisor/log/ccs_dagasmart_com.out.log
+stderr_logfile=/xp/server/supervisor/log/ccs_dagasmart_com.err.log
+stdout_logfile_maxbytes=2MB
+stderr_logfile_maxbytes=2MB
+user=www
+priority=999
+numprocs=2
+process_name=%(program_name)s_%(process_num)02d
+```
 以上，基于 schedules 数据表来管理调度任务就完成了。
 
 ## 协议
