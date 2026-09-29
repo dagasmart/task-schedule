@@ -2,11 +2,10 @@
 
 namespace DagaSmart\TaskSchedule\Models;
 
-use DagaSmart\BizAdmin\Models\BaseModel as Model;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * 任务调度表
+ * 任务调度日志表
  */
 class TaskScheduleLog extends Model
 {

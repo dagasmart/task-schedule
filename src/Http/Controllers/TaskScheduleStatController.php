@@ -2,10 +2,8 @@
 
 namespace DagaSmart\TaskSchedule\Http\Controllers;
 
-use DagaSmart\BizAdmin\Admin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\JsonResource;
-use DagaSmart\BizAdmin\Controllers\AdminController;
 use DagaSmart\TaskSchedule\Services\TaskScheduleStatService;
 
 class TaskScheduleStatController extends AdminController
@@ -122,8 +120,8 @@ JS
                     ->justify('center')
                     ->alignItems('center')
                     ->items([
-                        amis()->Image()->src(url(Admin::config('admin.logo'))),
-                        amis()->Wrapper()->className('text-3xl mt-9 font-bold')->body(Admin::config('admin.name')),
+                        amis()->Image()->src(url(admin_config('admin.logo'))),
+                        amis()->Wrapper()->className('text-3xl mt-9 font-bold')->body(admin_config('admin.name')),
                         amis()->Flex()->className('w-full mt-5')->justify('center')->items([
                             $link('代码', 'https://github.com/dagasmart/bizadmin'),
                             $link('官网', 'https://biz.dagasmart.com'),
