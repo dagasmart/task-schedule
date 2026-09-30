@@ -77,9 +77,21 @@ class TaskScheduleService extends AdminService
      */
     public function execute($id): bool
     {
-        $command = $this->getModel()->where('id', $id)->value('command');
-        admin_abort_if(!$command, '此项任务不存在');
-        return (bool) \Illuminate\Support\Facades\Artisan::call($command);
+        $task = $this->getModel()->find($id);
+        admin_abort_if(!$task, '此项任务不存在');
+
+        $command = trim($task->command);
+        $command = preg_replace('/^php\s+artisan\s+/i', '', $command);
+        $params = trim($task->parameters ?? '');
+
+        try {
+            $exitCode = \Illuminate\Support\Facades\Artisan::call(
+                $command . ($params ? ' ' . $params : '')
+            );
+            return $exitCode === 0;
+        } catch (\Throwable $e) {
+            admin_abort('执行失败: ' . $e->getMessage());
+        }
     }
 
 

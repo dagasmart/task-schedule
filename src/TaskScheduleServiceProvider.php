@@ -70,15 +70,14 @@ class TaskScheduleServiceProvider extends ServiceProvider
         parent::boot();
 
         $this->extendValidationRules();
-
         $this->setupConfig();
 
         if ($this->app->runningInConsole()) {
-            //$this->setupMigration(); //建表
-
             $this->listenEvents();
 
-            $this->app->resolving(Schedule::class, function ($schedule) {
+            // ✅ Laravel 13 唯一可靠方式
+            $this->app->booted(function () {
+                $schedule = $this->app->make(Schedule::class);
                 $this->schedule($schedule);
             });
         }
@@ -125,72 +124,94 @@ class TaskScheduleServiceProvider extends ServiceProvider
      */
     protected function schedule(Schedule $schedule): void
     {
-        $commands = app(Kernel::class)->all();
-
         try {
-            $schedules = app(Config::get('schedule.model'))->active()->get();
-        } catch (QueryException $exception) {
+            $schedules = app(Config::get('schedule.model'))
+                ->active()
+                ->get();
+        } catch (QueryException $e) {
             $schedules = collect();
         }
 
+        if ($schedules->isEmpty()) {
+            return;
+        }
+
+        $artisan = app(\Illuminate\Contracts\Console\Kernel::class);
+        $commands = collect($artisan->all())
+            ->filter(fn ($cmd) => $cmd instanceof \Illuminate\Console\Command)
+            ->keyBy(fn ($cmd) => $cmd->getName());
+
         $schedules->each(function ($item) use ($schedule, $commands) {
-            // ✅ command 为空时跳过
-            if (empty(trim((string) $item->command ?? ''))) {
+
+            // ✅ 命令为空跳过
+            if (empty($item->command)) {
                 return;
             }
-            // ✅ 过滤 php artisan 前缀，避免重复拼接
-            $command = trim((string) $item->command ?? '');
+
+            // ✅ 清理命令名：去掉 php artisan 前缀
+            $command = trim($item->command);
             $command = preg_replace('/^php\s+artisan\s+/i', '', $command);
-            $params  = trim($item->parameters ?? '');
-            $command = $command . ($params ? ' ' . $params : '');
+            $command = preg_replace('/^artisan\s+/i', '', $command);
 
-            $event = $schedule->command($command);
-            $event->cron($item->expression)
-                ->name($item->description)
-                ->timezone($item->timezone);
-
-            $callbacks = ['skip', 'when', 'before', 'after', 'onSuccess', 'onFailure'];
-            foreach ($callbacks as $callback) {
-                if (isset($commands[$item->command]) && method_exists($commands[$item->command], $callback)) {
-                    $event->$callback($commands[$item->command]->$callback($event, $item));
-                }
+            if (empty($command)) {
+                return;
             }
 
+            // ✅ 参数拆成数组（DB 里存 JSON 数组最稳，退路按空格拆）
+            $params = trim($item->parameters ?? '');
+            $paramArray = $params !== ''
+                ? (json_decode($params, true) ?? str_getcsv($params, ' '))
+                : [];
+
+            // ✅ 用官方 API，命令名和参数分离
+            $event = $schedule->command($command, $paramArray);
+
+            // ✅ cron + name + timezone
+            $event->cron($item->expression ?? '* * * * *')
+                ->name($item->description ?? $item->command)
+                ->timezone($item->timezone ?? null);
+
+            // ✅ 环境限制
             if (!empty($item->environments)) {
-                //\Illuminate\Support\Facades\App::environment();
-                $event->environments($item->environments);
+                $envs = is_array($item->environments)
+                    ? $item->environments
+                    : explode(',', $item->environments);
+                $event->environments($envs);
             }
 
+            // ✅ 防重叠
             if (!empty($item->without_overlapping)) {
-                $event->withoutOverlapping($item->without_overlapping);
+                $event->withoutOverlapping((int) $item->without_overlapping);
             }
 
+            // ✅ 单服务器
             if (!empty($item->on_one_server)) {
                 $event->onOneServer();
             }
 
+            // ✅ 后台运行
             if (!empty($item->in_background)) {
                 $event->runInBackground();
             }
 
+            // ✅ 维护模式也跑
             if (!empty($item->in_maintenance_mode)) {
                 $event->evenInMaintenanceMode();
             }
 
+            // ✅ 输出到文件
             if (!empty($item->output_file_path)) {
-                if (!empty($item->output_append)) {
-                    $event->appendOutputTo(Config::get('schedule.output.path').Str::start($item->output_file_path, DIRECTORY_SEPARATOR));
-                } else {
-                    $event->sendOutputTo(Config::get('schedule.output.path').Str::start($item->output_file_path, DIRECTORY_SEPARATOR));
-                }
+                $path = Config::get('schedule.output.path') . $item->output_file_path;
+                !empty($item->output_append)
+                    ? $event->appendOutputTo($path)
+                    : $event->sendOutputTo($path);
             }
 
+            // ✅ 输出发邮件
             if (!empty($item->output_email)) {
-                if (!empty($item->output_email_on_failure)) {
-                    $event->emailOutputOnFailure($item->output_email);
-                } else {
-                    $event->emailOutputTo($item->output_email);
-                }
+                !empty($item->output_email_on_failure)
+                    ? $event->emailOutputOnFailure($item->output_email)
+                    : $event->emailOutputTo($item->output_email);
             }
         });
     }
