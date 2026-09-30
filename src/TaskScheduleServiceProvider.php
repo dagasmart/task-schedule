@@ -136,16 +136,17 @@ class TaskScheduleServiceProvider extends ServiceProvider
             return;
         }
 
-        $artisan = app(\Illuminate\Contracts\Console\Kernel::class);
-        $commands = collect($artisan->all())
-            ->filter(fn ($cmd) => $cmd instanceof \Illuminate\Console\Command)
-            ->keyBy(fn ($cmd) => $cmd->getName());
-
-        $schedules->each(function ($item) use ($schedule, $commands) {
+        $schedules->each(function ($item) use ($schedule) {
 
             // ✅ 命令为空跳过
             if (empty($item->command)) {
                 return;
+            }
+
+            // ✅ 校验 cron 表达式合法性（核心修复）
+            if (empty($item->expression) || !CronExpression::isValidExpression($item->expression)) {
+                logger()->warning("TaskSchedule [ID:{$item->id}] 跳过非法 cron 表达式: {$item->expression}");
+                return; // ← 跳过这条任务，不注册到 Schedule
             }
 
             // ✅ 清理命令名：去掉 php artisan 前缀
@@ -168,7 +169,7 @@ class TaskScheduleServiceProvider extends ServiceProvider
 
             // ✅ cron + name + timezone
             $event->cron($item->expression ?? '* * * * *')
-                ->name($item->description ?? $item->command)
+                ->name(trim((string)$item->description) ?: $item->command)
                 ->timezone($item->timezone ?? null);
 
             // ✅ 环境限制
@@ -179,9 +180,13 @@ class TaskScheduleServiceProvider extends ServiceProvider
                 $event->environments($envs);
             }
 
-            // ✅ 防重叠
+            // ✅ 防重叠释放锁时间
             if (!empty($item->without_overlapping)) {
-                $event->withoutOverlapping((int) $item->without_overlapping);
+                $minutes = 1440; // 默认 24 小时
+                if (is_numeric($item->without_overlapping) && $item->without_overlapping > 0) {
+                    $minutes = min((int) $item->without_overlapping, 10080); // ← 最多 7 天，防止手误填天文数字
+                }
+                $event->withoutOverlapping($minutes);
             }
 
             // ✅ 单服务器

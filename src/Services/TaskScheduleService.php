@@ -2,6 +2,7 @@
 
 namespace DagaSmart\TaskSchedule\Services;
 
+use Cron\CronExpression;
 use DagaSmart\BizAdmin\Admin;
 use Illuminate\Database\Query\Builder;
 use DagaSmart\TaskSchedule\Models\TaskSchedule;
@@ -66,6 +67,13 @@ class TaskScheduleService extends AdminService
         $admin = admin_user();
         admin_abort_if(!$admin, '请先登录');
 
+        // ✅ cron 校验
+        if (!empty($data['expression'])) {
+            if (!CronExpression::isValidExpression($data['expression'])) {
+                admin_abort('执行时间不是合法的 CRON 表达式');
+            }
+        }
+
         $data['creator_id'] = $admin->id;
         $data['creator'] = $admin->name;
     }
@@ -82,12 +90,16 @@ class TaskScheduleService extends AdminService
 
         $command = trim($task->command);
         $command = preg_replace('/^php\s+artisan\s+/i', '', $command);
-        $params = trim($task->parameters ?? '');
+        $command = preg_replace('/^artisan\s+/i', '', $command);
+
+        // 把参数按空格拆成数组（简单处理）
+        $params = [];
+        if (!empty($task->parameters)) {
+            $params = preg_split('/\s+/', $task->parameters);
+        }
 
         try {
-            $exitCode = \Illuminate\Support\Facades\Artisan::call(
-                $command . ($params ? ' ' . $params : '')
-            );
+            $exitCode = Artisan::call($command, $params);
             return $exitCode === 0;
         } catch (\Throwable $e) {
             admin_abort('执行失败: ' . $e->getMessage());

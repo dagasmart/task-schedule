@@ -70,7 +70,7 @@ class TaskScheduleController extends AdminController
                     ->set('type', 'input-tag')
                     ->set('options', $this->service->envOption())
                     ->set('static', true),
-				amis()->TableColumn('without_overlapping', '是否重复执行')->set('type','switch'),
+				amis()->TableColumn('without_overlapping', '防重复锁释放时间')->set('type','switch'),
 				amis()->TableColumn('on_one_server', '是否当前服务器')->set('type','switch'),
 				amis()->TableColumn('in_background', '是否后台运行')->set('type','switch'),
 				amis()->TableColumn('in_maintenance_mode', '是否维护模式')->set('type','switch'),
@@ -141,8 +141,12 @@ class TaskScheduleController extends AdminController
                                 ->extractValue()
                                 ->joinValues(false)
                                 ->required(),
-                            amis()->SwitchControl('without_overlapping', '是否重复执行')
-                                ->onText('是')->offText('否')
+                            amis()->NumberControl('without_overlapping', '防重复锁释放时间(分)')
+                                ->min(0)
+                                ->max(1440)
+                                ->value(1)
+                                ->desc('一般为任务执行完成的最大时间 * 1.5')
+                                ->descriptionClassName('text-secondary')
                                 ->labelClassName('font-bold text-secondary'),
                             amis()->SwitchControl('on_one_server', '是否当前服务器')
                                 ->onText('是')->offText('否')
@@ -197,7 +201,10 @@ class TaskScheduleController extends AdminController
                     amis()->TextControl('environments', '环境设置')->static(),
                 ]),
                 amis()->Tab()->title('运维信息')->body([
-                    amis()->SwitchControl('without_overlapping', '是否重复执行')->onText('是')->offText('否')->disabled(),
+                    amis()->NumberControl('without_overlapping', '是否重复执行')
+                        ->min(0)
+                        ->max(1440)
+                        ->disabled(),
                     amis()->SwitchControl('on_one_server', '是否当前服务器')->onText('是')->offText('否')->disabled(),
                     amis()->SwitchControl('in_background', '是否后台运行')->onText('是')->offText('否')->disabled(),
                     amis()->SwitchControl('in_maintenance_mode', '是否维护模式')->onText('是')->offText('否')->disabled(),
