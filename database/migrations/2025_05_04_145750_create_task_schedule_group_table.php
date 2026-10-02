@@ -26,7 +26,7 @@ return new class extends Migration
             $table->string('group_name', 64)->comment('分组名称');
             $table->text('description')->nullable()->comment('分组描述');
             $table->smallInteger('sort')->default(0)->comment('排序[0-32767]');
-            $table->unsignedBigInteger('parent_id')->default(0)->comment('上级分组ID');
+            $table->unsignedBigInteger('parent_id')->nullable()->comment('上级分组ID');
             $table->string('module', 64)->nullable()->comment('模块标识');
             $table->boolean('active')->default(true)->comment('是否激活');
             $table->timestamps();

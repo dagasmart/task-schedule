@@ -90,7 +90,7 @@ class TaskScheduleController extends AdminController
                     amis()->LinkAction()->label('执行')
                         ->level('link')->className('text-primary')
                         ->confirmText('确认立即执行该任务？')
-                        ->api('post:' . admin_url('task-schedule/execute') . '?id=${id}'),
+                        ->api('post:' . admin_url('task-schedule/${id}/execute')),
                     // 预览
                     amis()->LinkAction()->label('预览')
                         ->level('link')->className('text-success')
@@ -98,7 +98,7 @@ class TaskScheduleController extends AdminController
                         ->drawer(
                             amis()->Drawer()->title('下次执行时间预览')
                                 ->body(
-                                    amis()->Service()->api(admin_url('task-schedule/preview') . '?id=${id}')
+                                    amis()->Service()->api(admin_url('task-schedule/${id}/preview'))
                                         ->body([
                                             amis()->Table()->columns([
                                                 amis()->TableColumn('run_time', '执行时间')->type('datetime'),

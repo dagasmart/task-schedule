@@ -74,6 +74,23 @@ class TaskScheduleServiceProvider extends ServiceProvider
         ScheduleCleanupCommand::class,
     ];
 
+    /**
+     * @throws Exception
+     */
+    public function register(): void
+    {
+        parent::register();
+
+        /**✅ 加载路由*/
+        parent::registerRoutes(__DIR__.'/Http/routes.php');
+
+        /**✅ 加载语言包*/
+        if ($lang = parent::getLangPath()) {
+            $this->loadTranslationsFrom($lang, $this->getCode());
+        }
+
+    }
+
     public function boot(): void
     {
         parent::boot();
