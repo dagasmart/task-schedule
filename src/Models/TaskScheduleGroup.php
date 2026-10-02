@@ -7,19 +7,20 @@ use DagaSmart\BizAdmin\Traits\CommonTrait;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * 任务调度表
+ * 任务分组模型
  */
 class TaskScheduleGroup extends Model
 {
     use CommonTrait;
+
     public $table = 'task_schedule_group';
 
     protected $primaryKey = 'id';
 
-    CONST STATUSACTIVE = ['success', 'danger', 'warning', 'info'];
+    const STATUS_ACTIVE = ['success', 'danger', 'warning', 'info'];
 
     protected $fillable = [
-        'group_name', 'description', 'sort', 'module',
+        'group_name', 'description', 'sort', 'parent_id', 'module',
     ];
 
     protected $casts = [
@@ -27,33 +28,34 @@ class TaskScheduleGroup extends Model
     ];
 
     /**
-     * Scope a query to only include active schedule.
-     *
-     * @param Builder $query
-     * @return Builder
+     * 父分组
      */
-    public function scopeActive(Builder $query): Builder
+    public function parent()
     {
-        return $query->where('active', 1);
+        return $this->belongsTo(self::class, 'parent_id');
     }
 
     /**
-     * 项目子模块
-     * @return array
+     * 子分组
      */
-    public function moduleOption()
+    public function children()
     {
-        $options = [];
-        if ($modules = $this->getModules()) {
-            $i = 0;
-            array_walk($modules, function (&$value, $key) use (&$i, &$options) {
-                $options[$i]['label'] = $key;
-                $options[$i]['value'] = $key;
-                $options[$i]['klass'] = static::STATUSACTIVE[$i];
-                $i ++;
-            });
-        }
-        return $options;
+        return $this->hasMany(self::class, 'parent_id');
     }
 
+    /**
+     * 分组下的任务
+     */
+    public function tasks()
+    {
+        return $this->hasMany(TaskSchedule::class, 'group_id');
+    }
+
+    /**
+     * 仅查询激活的分组
+     */
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->where('active', true);
+    }
 }

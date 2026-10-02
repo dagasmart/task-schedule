@@ -3,33 +3,31 @@
 namespace DagaSmart\TaskSchedule;
 
 use Cron\CronExpression;
-use Illuminate\Contracts\Console\Kernel;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Console\Events\ScheduledTaskFailed;
 use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskStarting;
 
-use DagaSmart\BizAdmin\Renderers\Form;
-use DagaSmart\BizAdmin\Renderers\TextControl;
 use DagaSmart\BizAdmin\Extend\ServiceProvider;
-
 use DagaSmart\TaskSchedule\Listeners\ScheduledTaskFailedListener;
 use DagaSmart\TaskSchedule\Listeners\ScheduledTaskFinishedListener;
 use DagaSmart\TaskSchedule\Listeners\ScheduledTaskStartingListener;
-
-
-
+use DagaSmart\TaskSchedule\Console\Commands\ScheduleSwowRunCommand;
+use DagaSmart\TaskSchedule\Console\Commands\ScheduleRunCommand;
+use DagaSmart\TaskSchedule\Console\Commands\ScheduleWorkCommand;
+use DagaSmart\TaskSchedule\Console\Commands\ScheduleCleanupCommand;
 
 class TaskScheduleServiceProvider extends ServiceProvider
 {
+    /**
+     * 菜单配置
+     */
     protected $menu = [
         [
-            'parent' => NULL,
+            'parent' => null,
             'title' => '任务调度',
             'url' => '/task-schedule',
             'url_type' => 1,
@@ -51,6 +49,13 @@ class TaskScheduleServiceProvider extends ServiceProvider
         ],
         [
             'parent' => '任务调度',
+            'title' => '任务日志',
+            'url' => '/task-schedule/log',
+            'url_type' => 1,
+            'icon' => 'mdi-light:clipboard-text',
+        ],
+        [
+            'parent' => '任务调度',
             'title' => '统计分析',
             'url' => '/task-schedule/stat',
             'url_type' => 1,
@@ -58,12 +63,15 @@ class TaskScheduleServiceProvider extends ServiceProvider
         ],
     ];
 
-    public function settingForm(): Form
-    {
-        return $this->baseSettingForm()->body([
-            TextControl::make()->name('value')->label('Value')->required(),
-        ]);
-    }
+    /**
+     * 命令列表
+     */
+    protected $commands = [
+        ScheduleSwowRunCommand::class,
+        ScheduleRunCommand::class,
+        ScheduleWorkCommand::class,
+        ScheduleCleanupCommand::class,
+    ];
 
     public function boot(): void
     {
@@ -71,154 +79,213 @@ class TaskScheduleServiceProvider extends ServiceProvider
 
         $this->extendValidationRules();
         $this->setupConfig();
+        $this->registerCommands();
 
         if ($this->app->runningInConsole()) {
             $this->listenEvents();
-
-            // ✅ Laravel 13 唯一可靠方式
-            $this->app->booted(function () {
-                $schedule = $this->app->make(Schedule::class);
-                $this->schedule($schedule);
-            });
+            $this->registerSchedule();
         }
     }
 
-    protected function listenEvents(): void
-    {
-        $this->app['events']->listen(ScheduledTaskStarting::class, ScheduledTaskStartingListener::class);
-        $this->app['events']->listen(ScheduledTaskFinished::class, ScheduledTaskFinishedListener::class);
-        $this->app['events']->listen(ScheduledTaskFailed::class, ScheduledTaskFailedListener::class);
-    }
-
-    protected function extendValidationRules(): void
-    {
-        Validator::extend('cron_expression', function ($attribute, $value, $parameters, $validator) {
-            return CronExpression::isValidExpression($value);
-        });
-    }
-
+    /**
+     * 注册配置
+     */
     protected function setupConfig(): void
     {
-        $configPath = dirname(__DIR__, 1).'/config/schedule.php';
+        $configPath = dirname(__DIR__, 1) . '/config/schedule.php';
 
         if ($this->app->runningInConsole()) {
-            $this->publishes([$configPath => config_path('schedule.php')], 'schedule');
+            $this->publishes([$configPath => config_path('schedule.php')], 'schedule-config');
         }
 
         $this->mergeConfigFrom($configPath, 'schedule');
     }
 
-    protected function setupMigration(): void
+    /**
+     * 注册命令
+     */
+    protected function registerCommands(): void
     {
-        $this->publishes([
-            dirname(__DIR__, 1) . '/database/migrations/create_task_schedule_table.php.stub' => database_path('migrations/'.date('Y_m_d_His').'_create_task_schedule_table.php'),
-            dirname(__DIR__, 1) . '/database/migrations/create_task_schedule_group_table.php.stub' => database_path('migrations/'.date('Y_m_d_His').'_create_task_schedule_group_table.php'),
-            dirname(__DIR__, 1) . '/database/migrations/create_task_schedule_log_table.php.stub' => database_path('migrations/'.date('Y_m_d_His').'_create_task_schedule_log_table.php'),
-        ], 'migrations');
+        if ($this->app->runningInConsole()) {
+            $this->commands($this->commands);
+        }
     }
 
     /**
-     * Prepare schedule from tasks.
-     *
-     * @param  Schedule  $schedule
+     * 注册调度任务
      */
-    protected function schedule(Schedule $schedule): void
+    protected function registerSchedule(): void
     {
-        try {
-            $schedules = app(Config::get('schedule.model'))
-                ->active()
-                ->get();
-        } catch (QueryException $e) {
-            $schedules = collect();
-        }
-
-        if ($schedules->isEmpty()) {
-            return;
-        }
-
-        $schedules->each(function ($item) use ($schedule) {
-
-            // ✅ 命令为空跳过
-            if (empty($item->command)) {
-                return;
-            }
-
-            // ✅ 校验 cron 表达式合法性（核心修复）
-            if (empty($item->expression) || !CronExpression::isValidExpression($item->expression)) {
-                logger()->warning("TaskSchedule [ID:{$item->id}] 跳过非法 cron 表达式: {$item->expression}");
-                return; // ← 跳过这条任务，不注册到 Schedule
-            }
-
-            // ✅ 清理命令名：去掉 php artisan 前缀
-            $command = trim($item->command);
-            $command = preg_replace('/^php\s+artisan\s+/i', '', $command);
-            $command = preg_replace('/^artisan\s+/i', '', $command);
-
-            if (empty($command)) {
-                return;
-            }
-
-            // ✅ 参数拆成数组（DB 里存 JSON 数组最稳，退路按空格拆）
-            $params = trim($item->parameters ?? '');
-            $paramArray = $params !== ''
-                ? (json_decode($params, true) ?? str_getcsv($params, ' '))
-                : [];
-
-            // ✅ 用官方 API，命令名和参数分离
-            $event = $schedule->command($command, $paramArray);
-
-            // ✅ cron + name + timezone
-            $event->cron($item->expression ?? '* * * * *')
-                ->name(trim((string)$item->description) ?: $item->command)
-                ->timezone($item->timezone ?? null);
-
-            // ✅ 环境限制
-            if (!empty($item->environments)) {
-                $envs = is_array($item->environments)
-                    ? $item->environments
-                    : explode(',', $item->environments);
-                $event->environments($envs);
-            }
-
-            // ✅ 防重叠释放锁时间
-            if (!empty($item->without_overlapping)) {
-                $minutes = 1440; // 默认 24 小时
-                if (is_numeric($item->without_overlapping) && $item->without_overlapping > 0) {
-                    $minutes = min((int) $item->without_overlapping, 10080); // ← 最多 7 天，防止手误填天文数字
-                }
-                $event->withoutOverlapping($minutes);
-            }
-
-            // ✅ 单服务器
-            if (!empty($item->on_one_server)) {
-                $event->onOneServer();
-            }
-
-            // ✅ 后台运行
-            if (!empty($item->in_background)) {
-                $event->runInBackground();
-            }
-
-            // ✅ 维护模式也跑
-            if (!empty($item->in_maintenance_mode)) {
-                $event->evenInMaintenanceMode();
-            }
-
-            // ✅ 输出到文件
-            if (!empty($item->output_file_path)) {
-                $path = Config::get('schedule.output.path') . $item->output_file_path;
-                !empty($item->output_append)
-                    ? $event->appendOutputTo($path)
-                    : $event->sendOutputTo($path);
-            }
-
-            // ✅ 输出发邮件
-            if (!empty($item->output_email)) {
-                !empty($item->output_email_on_failure)
-                    ? $event->emailOutputOnFailure($item->output_email)
-                    : $event->emailOutputTo($item->output_email);
-            }
+        // 使用 Laravel 13 新特性：通过闭包注册
+        $this->app->booted(function () {
+            $schedule = $this->app->make(Schedule::class);
+            $this->schedule($schedule);
         });
     }
 
+    /**
+     * 定义调度任务
+     */
+    protected function schedule(Schedule $schedule): void
+    {
+        // 1. 秒/分级任务 - 使用 Swow 调度器（推荐）
+        $schedule->command('schedule:swow-run --workers=4 --max-concurrency=1024 --tick-ms=10')
+            ->everyMinute()
+            ->withoutOverlapping(120)
+            ->onOneServer()
+            ->runInBackground();
+
+        // 2. 高精度秒级任务（不使用 Swow 时的备选方案）
+        $schedule->command('schedule:work --interval=1 --precision=1')
+            ->everyMinute()
+            ->withoutOverlapping(120)
+            ->runInBackground();
+
+        // 3. 分级任务
+        $schedule->command('schedule:work --interval=60 --precision=2')
+            ->everyMinute()
+            ->withoutOverlapping(120)
+            ->runInBackground();
+
+        // 4. 清理过期日志（每天凌晨执行）
+        $schedule->command('schedule:cleanup --days=30 --optimize')
+            ->dailyAt('03:00')
+            ->withoutOverlapping();
+
+        // 5. 健康检查
+        $schedule->call(function () {
+            $this->healthCheck();
+        })
+            ->everyFiveMinutes()
+            ->name('task-schedule-health-check');
+    }
+
+    /**
+     * 健康检查
+     */
+    protected function healthCheck(): void
+    {
+        try {
+            // 检查数据库连接
+            DB::connection()->getPdo();
+
+            // 检查 Swow 调度器心跳
+            $heartbeats = Cache::get('scheduler:heartbeats', []);
+            $staleWorkers = [];
+
+            foreach ($heartbeats as $workerId => $data) {
+                if (now()->diffInMinutes($data['last_seen']) > 5) {
+                    $staleWorkers[] = $workerId;
+                }
+            }
+
+            if (!empty($staleWorkers)) {
+                Log::warning('Stale scheduler workers detected: ' . implode(', ', $staleWorkers));
+            }
+        } catch (\Throwable $e) {
+            Log::error('Scheduler health check failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * 注册事件监听
+     */
+    protected function listenEvents(): void
+    {
+        Event::listen(ScheduledTaskStarting::class, ScheduledTaskStartingListener::class);
+        Event::listen(ScheduledTaskFinished::class, ScheduledTaskFinishedListener::class);
+        Event::listen(ScheduledTaskFailed::class, ScheduledTaskFailedListener::class);
+    }
+
+    /**
+     * 扩展验证规则
+     */
+    protected function extendValidationRules(): void
+    {
+        Validator::extend('cron_expression', function ($attribute, $value, $parameters, $validator) {
+            // 支持 5 字段（分 时 日 月 周）和 6 字段（秒 分 时 日 月 周）
+            $parts = explode(' ', trim($value));
+
+            if (count($parts) === 6) {
+                // 6 字段格式：验证秒字段
+                $seconds = $parts[0];
+                if (!$this->isValidSecondExpression($seconds)) {
+                    return false;
+                }
+                // 验证后 5 字段
+                $cronPart = implode(' ', array_slice($parts, 1));
+                return CronExpression::isValidExpression($cronPart);
+            }
+
+            return CronExpression::isValidExpression($value);
+        });
+
+        Validator::extend('task_name_unique', function ($attribute, $value, $parameters, $validator) {
+            $query = DB::table(config('schedule.table', 'task_schedule'))
+                ->where('task_name', $value);
+
+            if (!empty($parameters[0])) {
+                $query->where('id', '!=', $parameters[0]);
+            }
+
+            return !$query->exists();
+        });
+    }
+
+    /**
+     * 验证秒字段表达式
+     */
+    private function isValidSecondExpression(string $expression): bool
+    {
+        // 允许：数字、逗号、连字符、星号、斜杠、逗号分隔的范围
+        if (!preg_match('/^[\d,\-\*\/]+$/', $expression)) {
+            return false;
+        }
+
+        // 检查每个数值是否在 0-59 范围内
+        $parts = explode(',', $expression);
+        foreach ($parts as $part) {
+            if (str_contains($part, '/')) {
+                [$range, $step] = explode('/', $part);
+                if (!is_numeric($step) || (int)$step < 1 || (int)$step > 59) {
+                    return false;
+                }
+                $part = $range;
+            }
+
+            if ($part === '*') {
+                continue;
+            }
+
+            if (str_contains($part, '-')) {
+                [$start, $end] = explode('-', $part);
+                if (!is_numeric($start) || !is_numeric($end)) {
+                    return false;
+                }
+                if ((int)$start < 0 || (int)$start > 59 || (int)$end < 0 || (int)$end > 59) {
+                    return false;
+                }
+                continue;
+            }
+
+            if (is_numeric($part)) {
+                $val = (int)$part;
+                if ($val < 0 || $val > 59) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * 设置迁移发布
+     */
+    protected function setupMigration(): void
+    {
+        $this->publishes([
+            dirname(__DIR__, 1) . '/Database/Migrations/' => database_path('migrations'),
+        ], 'schedule-migrations');
+    }
 }

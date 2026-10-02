@@ -6,18 +6,13 @@ use DagaSmart\BizAdmin\Renderers\Form;
 use DagaSmart\BizAdmin\Renderers\Page;
 use DagaSmart\TaskSchedule\Services\TaskScheduleGroupService;
 
-/**
- * 任务调度表
- *
- * @property TaskScheduleGroupService $service
- */
 class TaskScheduleGroupController extends AdminController
 {
-	protected string $serviceName = TaskScheduleGroupService::class;
+    protected string $serviceName = TaskScheduleGroupService::class;
 
-	public function list(): Page
+    public function list(): Page
     {
-		$crud = $this->baseCRUD()
+        $crud = $this->baseCRUD()
             ->filterTogglable(true)
             ->filter(
                 $this->baseFilter()->body([
@@ -25,11 +20,6 @@ class TaskScheduleGroupController extends AdminController
                         ->labelClassName('font-bold text-secondary')
                         ->clearable()
                         ->size('sm'),
-//                    amis()->Divider(),
-//                    amis()->CheckboxesControl('module', '模块')
-//                        ->options($this->service->moduleOption())
-//                        ->clearable()
-//                        ->size('sm'),
                 ])
             )
             ->headerToolbar([
@@ -37,53 +27,65 @@ class TaskScheduleGroupController extends AdminController
                 ...$this->baseHeaderToolBar()
             ])
             ->autoFillHeight(true)
-			->columns([
-				amis()->TableColumn('id', 'ID')->sortable()->fixed('left'),
-				amis()->TableColumn('group_name', '分组名称')->width(200)->fixed('left'),
-				amis()->TableColumn('description', '分组描述')->width(300),
-				amis()->TableColumn('sort', '排序[0-255]'),
-//				amis()->TableColumn('module', '模块')->width(150),
-				amis()->TableColumn('created_at', admin_trans('admin.created_at'))->type('datetime')->sortable(),
-				amis()->TableColumn('updated_at', admin_trans('admin.updated_at'))->type('datetime')->sortable(),
-				$this->rowActions('drawer', 'sm')->set('width', 180)->fixed('right')
-			]);
+            ->columns([
+                amis()->TableColumn('id', 'ID')->sortable()->fixed('left'),
+                amis()->TableColumn('group_name', '分组名称')->width(200)->fixed('left'),
+                amis()->TableColumn('parent_id', '上级分组')->width(150)
+                    ->set('type', 'tree-select')
+                    ->set('options', $this->service->treeOption())
+                    ->set('labelField', 'level_name')
+                    ->set('textOverflow', 'noWrap')
+                    ->set('static', true),
+                amis()->TableColumn('description', '分组描述')->width(300),
+                amis()->TableColumn('sort', '排序[0-32767]')->width(120),
+                amis()->TableColumn('created_at', '创建时间')->type('datetime')->sortable(),
+                amis()->TableColumn('updated_at', '更新时间')->type('datetime')->sortable(),
+                $this->rowActions('drawer', 'sm')->set('width', 180)->fixed('right')
+            ]);
 
-		return $this->baseList($crud);
-	}
+        return $this->baseList($crud);
+    }
 
-	public function form($isEdit = false): Form
+    public function form($isEdit = false): Form
     {
-		return $this->baseForm()->mode('normal')->body([
+        return $this->baseForm()->mode('normal')->body([
             amis()->GroupControl()->direction('vertical')->body([
+                amis()->TreeSelectControl('parent_id', '上级分组')
+                    ->source(admin_url('task-schedule/group/treeOption'))
+                    ->onlyLeaf(false)
+                    ->searchable()
+                    ->clearable()
+                    ->value()
+                    ->description('不选则为顶级分组'),
                 amis()->TextControl('group_name', '分组名称')
                     ->labelClassName('font-bold text-secondary')
                     ->required(),
-                amis()->TextareaControl('description', '分组描述')->labelClassName('font-bold text-secondary'),
-//                amis()->CheckboxesControl('module', '模块')
-//                    ->className('rounded-xl border border-solid p-5 shadow')
-//                    ->style(['border-color' => 'var(--button-enhance-default-top-border-color)'])
-//                    ->options($this->service->moduleOption()),
-                amis()->NumberControl('sort', '排序[0-255]')
+                amis()->TextareaControl('description', '分组描述')
+                    ->labelClassName('font-bold text-secondary'),
+                amis()->NumberControl('sort', '排序[0-32767]')
                     ->labelClassName('font-bold text-secondary')
                     ->value(10)
-                    ->size('sm')
+                    ->min(0)->max(32767)
                     ->required(),
             ]),
-		]);
-	}
+        ]);
+    }
 
-	public function detail(): Form
+    public function detail(): Form
     {
-		return $this->baseDetail()->body([
-			amis()->TextControl('id', 'ID')->labelClassName('font-bold text-secondary')->static(),
-			amis()->TextControl('group_name', '分组名称')->labelClassName('font-bold text-secondary')->static(),
+        return $this->baseDetail()->body([
+            amis()->TextControl('id', 'ID')->labelClassName('font-bold text-secondary')->static(),
+            amis()->TextControl('group_name', '分组名称')->labelClassName('font-bold text-secondary')->static(),
             amis()->TextareaControl('description', '分组描述')->labelClassName('font-bold text-secondary')->static(),
-//            amis()->CheckboxesControl('module', '模块')
-//                ->options($this->service->moduleOption())
-//                ->disabled(),
-            amis()->NumberControl('sort', '排序[0-255]')->labelClassName('font-bold text-secondary')->static(),
-			amis()->TextControl('created_at', admin_trans('admin.created_at'))->labelClassName('font-bold text-secondary')->static(),
-			amis()->TextControl('updated_at', admin_trans('admin.updated_at'))->labelClassName('font-bold text-secondary')->static(),
-		]);
-	}
+            amis()->NumberControl('sort', '排序[0-32767]')->labelClassName('font-bold text-secondary')->static(),
+            amis()->TextControl('created_at', '创建时间')->labelClassName('font-bold text-secondary')->static(),
+            amis()->TextControl('updated_at', '更新时间')->labelClassName('font-bold text-secondary')->static(),
+        ]);
+    }
+
+    public function treeOption(): array
+    {
+        return $this->service->treeOption();
+    }
+
 }

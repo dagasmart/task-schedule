@@ -2,32 +2,58 @@
 
 namespace DagaSmart\TaskSchedule\Models;
 
+use DagaSmart\BizAdmin\Models\BaseModel as Model;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/**
- * 任务调度日志表
- */
 class TaskScheduleLog extends Model
 {
     public $table = 'task_schedule_log';
 
     protected $fillable = [
-        'task_id', 'description', 'state', 'result', 'module',
+        'task_id', 'task_name', 'command', 'description', 'state',
+        'result', 'output', 'exit_code', 'duration', 'started_at', 'finished_at',
+        'memory_peak', 'pid', 'worker_id', 'module',
     ];
 
     protected $casts = [
-        'state' => 'boolean',
+        'output'       => 'array',
+        'result'       => 'array',
+        'duration'     => 'float',
+        'exit_code'    => 'integer',
+        'memory_peak'  => 'integer',
+        'pid'          => 'integer',
+        'started_at'   => 'datetime',
+        'finished_at'  => 'datetime',
+        'state'        => 'boolean',
     ];
 
-    /**
-     * Scope a query to only include active schedule.
-     *
-     * @param Builder $query
-     * @return Builder
-     */
-    public function scopeActive(Builder $query): Builder
+    public function task(): BelongsTo
     {
-        return $query->where('state', 1);
+        return $this->belongsTo(TaskSchedule::class, 'task_id');
     }
 
+    /**
+     * 查询成功的任务
+     */
+    public function scopeSuccess(Builder $query): Builder
+    {
+        return $query->where('state', true);
+    }
+
+    /**
+     * 查询失败的任务
+     */
+    public function scopeFailed(Builder $query): Builder
+    {
+        return $query->where('state', false);
+    }
+
+    /**
+     * 按时间范围查询
+     */
+    public function scopeInRange(Builder $query, $start, $end): Builder
+    {
+        return $query->whereBetween('created_at', [$start, $end]);
+    }
 }

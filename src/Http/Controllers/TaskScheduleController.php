@@ -7,21 +7,22 @@ use DagaSmart\BizAdmin\Renderers\Page;
 use DagaSmart\TaskSchedule\Services\TaskScheduleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Schedule;
+use DagaSmart\TaskSchedule\Enums\PrecisionLevel;
+use DagaSmart\TaskSchedule\Enums\TaskStatus;
 
 /**
- * 任务调度表
- *
- * @property TaskScheduleService $service
+ * 任务调度控制器
  */
 class TaskScheduleController extends AdminController
 {
-	protected string $serviceName = TaskScheduleService::class;
+    protected string $serviceName = TaskScheduleService::class;
 
-	public function list(): Page
+    /**
+     * 列表页
+     */
+    public function list(): Page
     {
-		$crud = $this->baseCRUD()
+        $crud = $this->baseCRUD()
             ->filterTogglable(true)
             ->filter(
                 $this->baseFilter()->body([
@@ -33,12 +34,16 @@ class TaskScheduleController extends AdminController
                         ->multiple()
                         ->checkAll()
                         ->clearable()
-                        ->size(),
+                        ->size('sm'),
                     amis()->Divider(),
                     amis()->CheckboxesControl('group_id', '任务分组')
                         ->options($this->service->getGroups())
                         ->clearable()
-                        ->size(),
+                        ->size('sm'),
+                    amis()->SelectControl('precision', '调度精度')
+                        ->options($this->service->precisionOption())
+                        ->clearable()
+                        ->size('sm'),
                 ])
             )
             ->headerToolbar([
@@ -46,254 +51,307 @@ class TaskScheduleController extends AdminController
                 ...$this->baseHeaderToolBar()
             ])
             ->autoFillHeight(true)
-			->columns([
-				amis()->TableColumn('id', 'ID')->sortable()->fixed('left'),
-				amis()->TableColumn('task_name', '任务名称')->width(200)
+            ->columns([
+                amis()->TableColumn('id', 'ID')->sortable()->fixed('left'),
+                amis()->TableColumn('task_name', '任务名称')->width(180)
                     ->searchable()
                     ->fixed('left'),
                 amis()->TableColumn('group_id', '任务分组')
-                    ->searchable(['name' => 'group_id', 'type'=>'checkboxes', 'options'=>$this->service->getGroups(), 'size'=>'sm'])
-                    ->set('type', 'static-select')
+                    ->set('type', 'input-tag')
                     ->set('options', $this->service->getGroups())
                     ->set('labelField', 'level_name')
-                    ->set('textOverflow', 'noWrap')
                     ->set('static', true)
-                    ->width(100),
-				amis()->TableColumn('command', '任务命令')->width(300),
-				amis()->TableColumn('parameters', '执行参数'),
-				amis()->TableColumn('expression', '执行时间')->width(150),
-                amis()->TableColumn('active', '任务状态')
-                    ->searchable(['type'=>'checkboxes', 'options'=>$this->service->statusOption(), 'size'=>'sm'])
-                    ->set('type','switch'),
-				amis()->TableColumn('timezone', '时区'),
-				amis()->TableColumn('environments', '环境设置')
-                    ->set('type', 'input-tag')
-                    ->set('options', $this->service->envOption())
-                    ->set('static', true),
-				amis()->TableColumn('without_overlapping', '防重复锁释放时间')->set('type','switch'),
-				amis()->TableColumn('on_one_server', '是否当前服务器')->set('type','switch'),
-				amis()->TableColumn('in_background', '是否后台运行')->set('type','switch'),
-				amis()->TableColumn('in_maintenance_mode', '是否维护模式')->set('type','switch'),
-				amis()->TableColumn('output_file_path', '输出的文件路径'),
-				amis()->TableColumn('output_append', '输出追加')->set('type','switch'),
-				amis()->TableColumn('output_email', '输出发送邮件'),
-				amis()->TableColumn('output_email_on_failure', '失败发送邮件')->set('type','switch'),
-				amis()->TableColumn('created_at', admin_trans('admin.created_at'))->type('datetime')->sortable(),
-				amis()->TableColumn('updated_at', admin_trans('admin.updated_at'))->type('datetime')->sortable(),
-				$this->rowActions([
+                    ->width(120),
+                amis()->TableColumn('task_type', '任务类型')
+                    ->set('type', 'mapping')
+                    ->set('map', $this->service->taskTypeMap())
+                    ->width(80),
+                amis()->TableColumn('command', '执行命令')->width(250)->set('textOverflow', 'ellipsis'),
+                amis()->TableColumn('expression', 'Cron表达式')->width(130),
+                amis()->TableColumn('precision', '精度')
+                    ->set('type', 'mapping')
+                    ->set('map', $this->service->precisionMap())
+                    ->width(60),
+                amis()->TableColumn('active', '状态')
+                    ->set('type', 'switch')
+                    ->width(80),
+                amis()->TableColumn('last_run_at', '上次执行')->type('datetime')->width(150),
+                amis()->TableColumn('next_run_at', '下次执行')->type('datetime')->width(150),
+                amis()->TableColumn('without_overlapping', '防重叠')
+                    ->set('type', 'switch')
+                    ->width(80),
+                amis()->TableColumn('created_at', '创建时间')->type('datetime')->sortable()->width(150),
+                amis()->TableColumn('description', '任务描述')->width(300),
+                $this->rowActions([
                     $this->rowShowButton('drawer'),
                     $this->rowEditButton('drawer'),
                     $this->rowDeleteButton(),
-                    $this->rowExecuteButton(),
-                    $this->rowStatButton(),
-                    $this->rowLogButton(),
-                ])->set('width',150)->fixed('right')
-			]);
+                    // 执行
+                    amis()->LinkAction()->label('执行')
+                        ->level('link')->className('text-primary')
+                        ->confirmText('确认立即执行该任务？')
+                        ->api('post:' . admin_url('task-schedule/execute') . '?id=${id}'),
+                    // 预览
+                    amis()->LinkAction()->label('预览')
+                        ->level('link')->className('text-success')
+                        ->actionType('drawer')
+                        ->drawer(
+                            amis()->Drawer()->title('下次执行时间预览')
+                                ->body(
+                                    amis()->Service()->api(admin_url('task-schedule/preview') . '?id=${id}')
+                                        ->body([
+                                            amis()->Table()->columns([
+                                                amis()->TableColumn('run_time', '执行时间')->type('datetime'),
+                                            ])
+                                        ])
+                                )
+                        ),
+                    // 日志
+                    amis()->LinkAction()->label('日志')
+                        ->level('link')->className('text-dark')
+                        ->linkTo(admin_url('task-schedule-logs?task_id=${id}')),
+                ])->set('width', 150)->fixed('right')
+            ]);
 
-		return $this->baseList($crud);
-	}
+        return $this->baseList($crud);
+    }
 
-	public function form($isEdit = false): Form
+    /**
+     * 表单
+     */
+    public function form($isEdit = false): Form
     {
-		return $this->baseForm()->mode('normal')->body([
+        return $this->baseForm()->mode('normal')->body([
             amis()->Tabs()->tabsMode('chrome')->className('rounded')->tabs([
-                // 字段信息
+                // 基本信息
                 amis()->Tab()->title('基本信息')->body([
-                    //amis()->Card()->body([
-                        amis()->GroupControl()->direction('vertical')->className('p-5')->body([
-                            amis()->TreeSelectControl('group_id', '任务分组')
-                                ->options($this->service->getGroups())
-                                ->labelClassName('font-bold text-secondary')
-                                ->onlyLeaf()
-                                ->required(),
-                            amis()->TextControl('task_name', '任务名称')
-                                ->labelClassName('font-bold text-secondary')
-                                ->required(),
-                            amis()->TextareaControl('command', '任务命令')
-                                ->labelClassName('font-bold text-secondary')
-                                ->required(),
-                            amis()->TextControl('parameters', '执行参数')
-                                ->labelClassName('font-bold text-secondary'),
-                            amis()->TextControl('expression', '执行时间，cron格式：*/1 * * * *')
-                                ->labelClassName('font-bold text-secondary')
-                                ->required(),
-                            amis()->SwitchControl('active', '任务状态')
-                                ->onText('正常上线')->offText('暂停下线')
-                                ->labelClassName('font-bold text-secondary'),
-                        ]),
-                    //]),
+                    amis()->GroupControl()->direction('vertical')->className('p-5')->body([
+                        amis()->TreeSelectControl('group_id', '任务分组')
+                            ->options($this->service->getGroups())
+                            //->labelField('level_name')
+                            ->labelClassName('font-bold text-secondary')
+                            ->onlyLeaf()
+                            ->required(),
+                        amis()->TextControl('task_name', '任务名称')
+                            ->labelClassName('font-bold text-secondary')
+                            ->required(),
+                        amis()->SelectControl('task_type', '任务类型')
+                            ->options($this->service->taskTypeOption())
+                            ->value('command')
+                            ->required(),
+                        amis()->TextareaControl('command', '执行命令/类名/URL')
+                            ->labelClassName('font-bold text-secondary')
+                            ->required()
+                            ->description('命令如: cache:clear | 类名如: App\\Jobs\\ProcessOrder | URL如: https://api.example.com/webhook'),
+                        amis()->TextControl('parameters', '执行参数')
+                            ->labelClassName('font-bold text-secondary')
+                            ->description('JSON数组格式，如: ["--force", "--verbose"]'),
+                        amis()->TextareaControl('description', '任务描述')
+                            ->description('任务场景的描述，255字以内'),
+                    ]),
                 ]),
-                // 字段信息
-                amis()->Tab()->title('任务描述')->body([
-                    //amis()->Card()->body([
-                        amis()->GroupControl()->direction('vertical')->className('p-5')->body([
-                            amis()->TextareaControl('description', '任务描述')
-                                ->labelClassName('font-bold text-secondary'),
-                            amis()->SelectControl('timezone', '时区')
-                                ->options(timezone_identifiers_list())
-                                ->value(date_default_timezone_get())
-                                ->labelClassName('font-bold text-secondary')
-                                ->searchable(),
-                            amis()->TagControl('environments', '环境设置')
-                                ->options($this->service->envOption())
-                                ->value(\Illuminate\Support\Facades\App::environment())
-                                ->labelClassName('font-bold text-secondary')
-                                ->extractValue()
-                                ->joinValues(false)
-                                ->required(),
-                            amis()->NumberControl('without_overlapping', '防重复锁释放时间(分)')
-                                ->min(0)
-                                ->max(1440)
-                                ->value(1)
-                                ->desc('一般为任务执行完成的最大时间 * 1.5')
-                                ->descriptionClassName('text-secondary')
-                                ->labelClassName('font-bold text-secondary'),
-                            amis()->SwitchControl('on_one_server', '是否当前服务器')
-                                ->onText('是')->offText('否')
-                                ->labelClassName('font-bold text-secondary'),
-                        ]),
-                    //]),
+                // 调度设置
+                amis()->Tab()->title('调度设置')->body([
+                    amis()->GroupControl()->direction('vertical')->className('p-5')->body([
+                        amis()->SelectControl('precision', '调度精度')
+                            ->options($this->service->precisionOption())
+                            ->value(PrecisionLevel::MINUTE->value)
+                            ->required()
+                            ->labelClassName('font-bold text-secondary'),
+                        amis()->TextControl('expression', 'Cron表达式')
+                            ->labelClassName('font-bold text-secondary')
+                            ->required()
+                            ->description('5字段(分 时 日 月 周) 或 6字段(秒 分 时 日 月 周)')
+                            ->placeholder('*/5 * * * * 或 0 */1 * * * *'),
+                        amis()->SwitchControl('active', '任务状态')
+                            ->onText('正常上线')->offText('暂停下线')
+                            ->labelClassName('font-bold text-secondary'),
+                        amis()->NumberControl('priority', '优先级')
+                            ->min(0)->max(100)->value(0)
+                            ->description('数值越大优先级越高')
+                            ->labelClassName('font-bold text-secondary'),
+                        amis()->SelectControl('timezone', '时区')
+                            ->options(timezone_identifiers_list())
+                            ->value(date_default_timezone_get())
+                            ->labelClassName('font-bold text-secondary')
+                            ->searchable(),
+                    ]),
                 ]),
-                // 字段信息
-                amis()->Tab()->title('运维信息')->body([
-                    //amis()->Card()->body([
-                        amis()->GroupControl()->direction('vertical')->className('p-5')->body([
-                            amis()->SwitchControl('in_background', '是否后台运行')
-                                ->onText('是')->offText('否')
-                                ->labelClassName('font-bold text-secondary'),
-                            amis()->SwitchControl('in_maintenance_mode', '是否维护模式')
-                                ->onText('是')->offText('否')
-                                ->labelClassName('font-bold text-secondary'),
-                            amis()->TextControl('output_file_path', '输出的文件路径')
-                                ->labelClassName('font-bold text-secondary'),
-                            amis()->SwitchControl('output_append', '输出追加')
-                                ->onText('是')->offText('否')
-                                ->labelClassName('font-bold text-secondary'),
-                            amis()->TextControl('output_email', '输出发送邮件')
-                                ->labelClassName('font-bold text-secondary'),
-                            amis()->SwitchControl('output_email_on_failure', '失败发送邮件')
-                                ->onText('是')->offText('否')
-                                ->labelClassName('font-bold text-secondary'),
-                        ]),
-                    //]),
+                // 高级设置
+                amis()->Tab()->title('高级设置')->body([
+                    amis()->GroupControl()->direction('vertical')->className('p-5')->body([
+                        amis()->TagControl('environments', '环境设置')
+                            ->options($this->service->envOption())
+                            ->value(\Illuminate\Support\Facades\App::environment())
+                            ->labelClassName('font-bold text-secondary')
+                            ->extractValue()
+                            ->joinValues(false),
+                        amis()->SwitchControl('without_overlapping', '防重复执行')
+                            ->onText('是')->offText('否')
+                            ->labelClassName('font-bold text-secondary'),
+                        amis()->NumberControl('overlap_release_minutes', '锁释放时间(分)')
+                            ->min(1)->max(10080)->value(1440)
+                            ->description('防重叠锁的最长持有时间')
+                            ->labelClassName('font-bold text-secondary'),
+                        amis()->SwitchControl('on_one_server', '单服务器执行')
+                            ->onText('是')->offText('否')
+                            ->labelClassName('font-bold text-secondary'),
+                        amis()->SwitchControl('in_background', '后台运行')
+                            ->onText('是')->offText('否')
+                            ->labelClassName('font-bold text-secondary'),
+                        amis()->SwitchControl('in_maintenance_mode', '维护模式执行')
+                            ->onText('是')->offText('否')
+                            ->labelClassName('font-bold text-secondary'),
+                        amis()->NumberControl('max_runtime', '最大运行时间(秒)')
+                            ->min(0)->max(86400)->value(0)
+                            ->description('0 = 不限制')
+                            ->labelClassName('font-bold text-secondary'),
+                        amis()->NumberControl('retry_times', '重试次数')
+                            ->min(0)->max(10)->value(0)
+                            ->labelClassName('font-bold text-secondary'),
+                        amis()->NumberControl('retry_interval', '重试间隔(秒)')
+                            ->min(1)->max(3600)->value(60)
+                            ->labelClassName('font-bold text-secondary'),
+                    ]),
+                ]),
+                // 输出设置
+                amis()->Tab()->title('输出设置')->body([
+                    amis()->GroupControl()->direction('vertical')->className('p-5')->body([
+                        amis()->TextControl('output_file_path', '输出文件路径')
+                            ->labelClassName('font-bold text-secondary'),
+                        amis()->SwitchControl('output_append', '追加输出')
+                            ->onText('是')->offText('否')
+                            ->labelClassName('font-bold text-secondary'),
+                        amis()->TextControl('output_email', '输出发送邮件')
+                            ->labelClassName('font-bold text-secondary'),
+                        amis()->SwitchControl('output_email_on_failure', '仅失败时发送')
+                            ->onText('是')->offText('否')
+                            ->labelClassName('font-bold text-secondary'),
+                    ]),
                 ]),
             ])
-		]);
-	}
+        ]);
+    }
 
-	public function detail(): Form
+    /**
+     * 详情页
+     */
+    public function detail(): Form
     {
-		return $this->baseDetail()->body([
+        return $this->baseDetail()->body([
             amis()->Tabs()->tabsMode('chrome')->className('rounded')->tabs([
                 amis()->Tab()->title('基本信息')->body([
                     amis()->TextControl('id', 'ID')->static(),
                     amis()->TextControl('task_name', '任务名称')->static(),
-                    amis()->TreeSelectControl('group_id', '任务分组')
+                    amis()->TextControl('task_type', '任务类型')
+                        ->type('static-mapping')
+                        ->set('map', $this->service->taskTypeMap())
+                        ->static(),
+                    amis()->TagControl('group_id', '任务分组')
                         ->options($this->service->getGroups())
                         ->labelField('level_name')
                         ->static(),
-                    amis()->TextControl('command', '任务命令')->static(),
-                    amis()->TextControl('parameters', '执行参数')->static(),
-                    amis()->TextControl('expression', '执行时间')->static(),
-                    amis()->TextControl('description', '任务描述')->static(),
-                    amis()->SwitchControl('active', '任务状态')->onText('正常上线')->offText('暂停下线')->disabled(),
-                    amis()->TextControl('timezone', '时区')->static(),
-                    amis()->TextControl('environments', '环境设置')->static(),
+                    amis()->TextControl('command', '执行命令')->static(),
+                    amis()->TextControl('expression', 'Cron表达式')->static(),
+                    amis()->TextControl('precision', '精度级别')
+                        ->type('static-mapping')
+                        ->set('map', $this->service->precisionMap())
+                        ->static(),
+                    amis()->TextControl('last_run_at', '上次执行')->static(),
+                    amis()->TextControl('next_run_at', '下次执行')->static(),
                 ]),
-                amis()->Tab()->title('运维信息')->body([
-                    amis()->NumberControl('without_overlapping', '是否重复执行')
-                        ->min(0)
-                        ->max(1440)
-                        ->disabled(),
-                    amis()->SwitchControl('on_one_server', '是否当前服务器')->onText('是')->offText('否')->disabled(),
-                    amis()->SwitchControl('in_background', '是否后台运行')->onText('是')->offText('否')->disabled(),
-                    amis()->SwitchControl('in_maintenance_mode', '是否维护模式')->onText('是')->offText('否')->disabled(),
-                    amis()->TextControl('output_file_path', '输出的文件路径')->static(),
-                    amis()->SwitchControl('output_append', '输出追加')->onText('是')->offText('否')->disabled(),
-                    amis()->TextControl('output_email', '输出发送邮件')->static(),
-                    amis()->SwitchControl('output_email_on_failure', '失败发送邮件')->onText('是')->offText('否')->disabled(),
-                    amis()->TextControl('created_at', admin_trans('admin.created_at'))->static(),
-                    amis()->TextControl('updated_at', admin_trans('admin.updated_at'))->static(),
+                amis()->Tab()->title('高级信息')->body([
+                    amis()->SwitchControl('without_overlapping', '防重复执行')->disabled(),
+                    amis()->NumberControl('overlap_release_minutes', '锁释放时间')->disabled(),
+                    amis()->SwitchControl('on_one_server', '单服务器执行')->disabled(),
+                    amis()->SwitchControl('in_background', '后台运行')->disabled(),
+                    amis()->SwitchControl('in_maintenance_mode', '维护模式执行')->disabled(),
+                    amis()->NumberControl('max_runtime', '最大运行时间')->disabled(),
+                    amis()->NumberControl('retry_times', '重试次数')->disabled(),
+                    amis()->NumberControl('retry_interval', '重试间隔')->disabled(),
+                    amis()->TextControl('created_at', '创建时间')->static(),
+                    amis()->TextControl('updated_at', '更新时间')->static(),
                 ]),
             ]),
-		]);
-	}
-
-    private function rowExecuteButton()
-    {
-        return amis()
-            ->DialogAction()
-            ->label('执行')
-            ->level('link')
-            ->className('text-primary')
-            ->dialog(
-                amis()
-                    ->Dialog()
-                    ->title()
-                    ->className('py-2')
-                    ->body([
-                        amis()->Form()->wrapWithPanel(false)->api(admin_url('task-schedule/${id}/execute'))->body([
-                            amis()->Tpl()->className('py-2')->tpl('是否立即执行【<b class="text-danger">${task_name}</b>】此项任务?'),
-                        ]),
-                    ])
-            );
-    }
-
-    private function rowStatButton()
-    {
-        return amis()
-            ->DialogAction()
-            ->label('分析')
-            ->level('link')
-            ->className('text-primary')
-            ->dialog(
-                amis()
-                    ->Dialog()
-                    ->title()
-                    ->className('py-2')
-                    ->body([
-                        amis()->Form()->wrapWithPanel(false)->api(admin_url('task-schedule/${id}/execute'))->body([
-                            amis()->Tpl()->className('py-2')->tpl('是否立即执行【<b class="text-danger">${task_name}</b>】此项任务?'),
-                        ]),
-                    ])
-            );
-    }
-
-    private function rowLogButton()
-    {
-        return amis()
-            ->DialogAction()
-            ->label('日志')
-            ->level('link')
-            ->className('text-dark')
-            ->dialog(
-                amis()
-                    ->Dialog()
-                    ->title()
-                    ->className('py-2')
-                    ->actions([
-                        amis()->Action()->actionType('cancel')->label(admin_trans('admin.cancel')),
-                        amis()->Action()->actionType('submit')->label(admin_trans('admin.delete'))->level('danger'),
-                    ])
-                    ->body([
-                        amis()->Form()->wrapWithPanel(false)->api($this->getDeletePath())->body([
-                            amis()->Tpl()->className('py-2')->tpl('是否立即执行任务?'),
-                        ]),
-                    ])
-            );
+        ]);
     }
 
     /**
      * 立即执行
-     * @param $id
-     * @return JsonResponse|JsonResource
      */
-    public function execute(Request $request): JsonResponse|JsonResource
+    public function execute(Request $request): JsonResponse
     {
-        admin_abort_if(!$request->isMethod('post'), '非法请求');
-        admin_abort_if(!$request->id, '此项任务不存在');
+        $request->validate(['id' => 'required|integer']);
+
         $res = $this->service->execute($request->id);
-        admin_abort_if(!$res, '执行失败');
         return $this->response()->successMessage('执行成功，稍候查看日志');
+    }
+
+    /**
+     * 预览下次执行时间
+     */
+    public function preview(Request $request): JsonResponse
+    {
+        $request->validate(['id' => 'required|integer']);
+
+        $runs = $this->service->previewNextRuns($request->id, 10);
+        return $this->response()->success($runs);
+    }
+
+    /**
+     * 暂停任务
+     */
+    public function pause(Request $request): JsonResponse
+    {
+        $request->validate(['id' => 'required|integer']);
+
+        $this->service->pause($request->id);
+        return $this->response()->successMessage('任务已暂停');
+    }
+
+    /**
+     * 恢复任务
+     */
+    public function resume(Request $request): JsonResponse
+    {
+        $request->validate(['id' => 'required|integer']);
+
+        $this->service->resume($request->id);
+        return $this->response()->successMessage('任务已恢复');
+    }
+
+    /**
+     * 批量操作
+     */
+    public function batchAction(Request $request): JsonResponse
+    {
+        $request->validate([
+            'action' => 'required|in:pause,resume,delete',
+            'ids' => 'required|array',
+        ]);
+
+        $method = match ($request->action) {
+            'pause' => 'batchPause',
+            'resume' => 'batchResume',
+            default => null,
+        };
+
+        if ($method) {
+            $count = $this->service->$method($request->ids);
+            return $this->response()->successMessage("已处理 {$count} 条记录");
+        }
+
+        // 批量删除
+        $deleted = 0;
+        foreach ($request->ids as $id) {
+            try {
+                $this->service->delete($id);
+                $deleted++;
+            } catch (\Throwable $e) {
+                // 跳过错误
+            }
+        }
+
+        return $this->response()->successMessage("已删除 {$deleted} 条记录");
     }
 }
