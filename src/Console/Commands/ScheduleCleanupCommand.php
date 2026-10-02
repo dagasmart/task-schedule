@@ -1,56 +1,63 @@
 <?php
-
+declare(strict_types=1);
 namespace DagaSmart\TaskSchedule\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
+use DagaSmart\TaskSchedule\Models\TaskScheduleRun;
+use DagaSmart\TaskSchedule\Models\TaskScheduleLog;
 
 class ScheduleCleanupCommand extends Command
 {
     protected $signature = 'schedule:cleanup
-                            {--days=30 : 日志保留天数}
-                            {--batch=1000 : 每批删除数量}
-                            {--optimize : 是否优化表}';
+                            {--days=30 : Days to retain}
+                            {--batch=1000 : Batch size}
+                            {--force : Skip confirmation}';
 
-    protected $description = '清理过期的调度日志和僵尸分发记录';
+    protected $description = 'Clean up old task schedule run and log records';
 
     public function handle(): int
     {
         $days = (int) $this->option('days');
         $batch = (int) $this->option('batch');
 
-        $this->info("Starting cleanup (retention: {$days} days, batch: {$batch})");
-
-        // 清理日志
-        $this->cleanupLogs($days, $batch);
-
-        // 清理僵尸分发记录
-        $this->cleanupStaleDispatches();
-
-        // 优化表
-        if ($this->option('optimize')) {
-            $this->optimizeTables();
+        if (!$this->option('force') && !$this->confirm("Clean up records older than {$days} days?")) {
+            $this->info('Aborted');
+            return self::SUCCESS;
         }
 
-        $this->info('Cleanup completed successfully.');
+        $this->info("Cleaning up records older than {$days} days...");
+
+        // 清理 task_schedule_run
+        $runCount = $this->cleanupTable(TaskScheduleRun::class, $days, $batch);
+        $this->info("Cleaned {$runCount} run records");
+
+        // 清理 task_schedule_log
+        $logCount = $this->cleanupTable(TaskScheduleLog::class, $days, $batch);
+        $this->info("Cleaned {$logCount} log records");
+
+        // 调用存储过程（如果存在）
+        try {
+            DB::statement('SELECT cleanup_dispatch_records(?)', [$days]);
+            $this->info('Stored procedure cleanup_dispatch_records executed');
+        } catch (\Throwable $e) {
+            // 存储过程不存在或失败，忽略
+        }
+
+        $this->info('Cleanup completed');
         return self::SUCCESS;
     }
 
     /**
-     * 清理过期日志
+     * 清理指定表
      */
-    private function cleanupLogs(int $days, int $batch): void
+    private function cleanupTable(string $modelClass, int $days, int $batch): int
     {
-        $table = config('schedule.log', 'task_schedule_log');
         $cutoff = now()->subDays($days);
-
-        $this->line("Cleaning logs older than {$cutoff->toDateTimeString()}...");
-
         $totalDeleted = 0;
 
         do {
-            $deleted = DB::table($table)
+            $deleted = $modelClass::query()
                 ->where('created_at', '<', $cutoff)
                 ->limit($batch)
                 ->delete();
@@ -60,67 +67,8 @@ class ScheduleCleanupCommand extends Command
             if ($deleted > 0) {
                 $this->line("  Deleted {$deleted} records (total: {$totalDeleted})");
             }
-
-            // 让出 CPU
-            usleep(10000);
         } while ($deleted > 0);
 
-        $this->info("Total logs cleaned: {$totalDeleted}");
-    }
-
-    /**
-     * 清理僵尸分发记录
-     */
-    private function cleanupStaleDispatches(): void
-    {
-        $table = config('schedule.dispatch', 'task_schedule_dispatch');
-
-        if (!Schema::hasTable($table)) {
-            return;
-        }
-
-        // 清理超过1小时未完成的记录
-        $cleaned = DB::table($table)
-            ->whereIn('status', [0, 1])
-            ->where('started_at', '<', now()->subHour())
-            ->update([
-                'status' => 3, // FAILED
-                'finished_at' => now(),
-            ]);
-
-        if ($cleaned > 0) {
-            $this->warn("Reset {$cleaned} stale dispatch record(s)");
-        }
-
-        // 清理已完成超过24小时的记录
-        $deleted = DB::table($table)
-            ->whereNotNull('finished_at')
-            ->where('finished_at', '<', now()->subDay())
-            ->delete();
-
-        if ($deleted > 0) {
-            $this->line("Deleted {$deleted} old dispatch record(s)");
-        }
-    }
-
-    /**
-     * 优化表
-     */
-    private function optimizeTables(): void
-    {
-        $driver = DB::connection()->getDriverName();
-
-        if ($driver === 'pgsql') {
-            $tables = [
-                config('schedule.table', 'task_schedule'),
-                config('schedule.log', 'task_schedule_log'),
-                config('schedule.dispatch', 'task_schedule_dispatch'),
-            ];
-
-            foreach ($tables as $table) {
-                $this->line("Analyzing table: {$table}");
-                DB::statement("ANALYZE {$table}");
-            }
-        }
+        return $totalDeleted;
     }
 }

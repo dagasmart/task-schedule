@@ -1,7 +1,5 @@
 <?php
-
 declare(strict_types=1);
-
 namespace DagaSmart\TaskSchedule\Models;
 
 use Illuminate\Database\Eloquent\Model;

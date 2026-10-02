@@ -1,5 +1,5 @@
 <?php
-
+declare(strict_types=1);
 namespace DagaSmart\TaskSchedule;
 
 use Cron\CronExpression;
@@ -19,6 +19,7 @@ use DagaSmart\TaskSchedule\Console\Commands\ScheduleSwowRunCommand;
 use DagaSmart\TaskSchedule\Console\Commands\ScheduleRunCommand;
 use DagaSmart\TaskSchedule\Console\Commands\ScheduleWorkCommand;
 use DagaSmart\TaskSchedule\Console\Commands\ScheduleCleanupCommand;
+use Illuminate\Console\Command;
 
 class TaskScheduleServiceProvider extends ServiceProvider
 {
@@ -107,8 +108,40 @@ class TaskScheduleServiceProvider extends ServiceProvider
     protected function registerCommands(): void
     {
         if ($this->app->runningInConsole()) {
-            $this->commands($this->commands);
+            $this->commands($this->discoverCommands());
         }
+    }
+    /**
+     * 自动扫描 Console/Commands 目录下的所有命令类
+     *
+     * @return array<class-string<Command>>
+     */
+    protected function discoverCommands(): array
+    {
+        $commands = [];
+        $dir = __DIR__.'/Console/Commands';
+
+        if (! is_dir($dir)) {
+            return $commands;
+        }
+
+        foreach (glob($dir.'/*.php') ?: [] as $file) {
+            $class = __NAMESPACE__.'\\Console\\Commands\\'.pathinfo($file, PATHINFO_FILENAME);
+
+            if (! class_exists($class)) {
+                continue;
+            }
+
+            if ((new \ReflectionClass($class))->isAbstract()) {
+                continue;
+            }
+
+            if (is_subclass_of($class, Command::class)) {
+                $commands[] = $class;
+            }
+        }
+
+        return $commands;
     }
 
     /**

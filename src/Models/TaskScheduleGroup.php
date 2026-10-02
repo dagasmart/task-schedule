@@ -1,9 +1,7 @@
 <?php
-
+declare(strict_types=1);
 namespace DagaSmart\TaskSchedule\Models;
 
-use DagaSmart\BizAdmin\Models\BaseModel as Model;
-use DagaSmart\BizAdmin\Traits\CommonTrait;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -11,7 +9,6 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class TaskScheduleGroup extends Model
 {
-    use CommonTrait;
 
     public $table = 'task_schedule_group';
 

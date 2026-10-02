@@ -1,6 +1,5 @@
 <?php
 declare(strict_types=1);
-
 namespace DagaSmart\TaskSchedule\Http\Controllers;
 
 use DagaSmart\BizAdmin\Controllers\AdminController as BaseAdminController;

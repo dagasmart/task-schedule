@@ -1,58 +1,38 @@
 <?php
-
+declare(strict_types=1);
 namespace DagaSmart\TaskSchedule\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Config;
 use DagaSmart\TaskSchedule\Console\SwowScheduler;
 
 class ScheduleSwowRunCommand extends Command
 {
-    /**
-     * The name and signature of the console command.
-     */
     protected $signature = 'schedule:swow-run
-                            {--daemon : 以守护进程模式运行}
-                            {--workers=1 : Worker 数量}
-                            {--max-concurrency=1024 : 最大协程并发数}
-                            {--tick-ms=10 : 事件循环 tick 间隔(毫秒)}';
+                            {--daemon : Run as daemon (Unix only)}
+                            {--max-concurrency=1024 : Max coroutines}
+                            {--tick-ms=10 : Tick interval in ms}
+                            {--workers=1 : Number of workers}';
 
-    /**
-     * The console command description.
-     */
-    protected $description = '启动 Swow 协程调度器（支持秒/分/时/天/周/月级精度）';
+    protected $description = 'Start the Swow-based task scheduler (cross-platform, no pcntl required)';
 
-    /**
-     * Execute the console command.
-     */
     public function handle(): int
     {
-        // 检查 Swow 扩展
-        if (!extension_loaded('swow')) {
-            $this->error('Swow 扩展未安装。请先安装：https://github.com/swow/swow');
-            $this->info('或者使用传统调度器：php artisan schedule:run');
+        // Windows 下不允许 daemon 模式
+        if ($this->option('daemon') && DIRECTORY_SEPARATOR === '\\') {
+            $this->error('Daemon 模式在 Windows 下不支持（需要 pcntl/posix 扩展）。');
+            $this->line('请直接运行：php artisan schedule:swow-run');
             return self::FAILURE;
         }
 
-        // 设置运行参数
         $this->configureRuntime();
-
-        $this->info('┌─────────────────────────────────────────────────────────┐');
-        $this->info('│       Swow Task Scheduler - High Performance Engine     │');
-        $this->info('├─────────────────────────────────────────────────────────┤');
-        $this->info('│  Precision : Second / Minute / Hour / Day / Week / Month│');
-        $this->info('│  Engine    : Swow Coroutine + PostgreSQL Advisory Lock  │');
-        $this->info('│  Mode      : ' . str_pad($this->option('daemon') ? 'Daemon' : 'Foreground', 42) . '│');
-        $this->info('│  Workers   : ' . str_pad($this->option('workers'), 42) . '│');
-        $this->info('│  Concurrency: ' . str_pad($this->option('max-concurrency'), 41) . '│');
-        $this->info('│  Tick      : ' . str_pad($this->option('tick-ms') . 'ms', 42) . '│');
-        $this->info('└─────────────────────────────────────────────────────────┘');
 
         if ($this->option('daemon')) {
             $this->runAsDaemon();
-        } else {
-            $this->runForeground();
+            return self::SUCCESS;
         }
 
+        $this->runForeground();
         return self::SUCCESS;
     }
 
@@ -63,18 +43,18 @@ class ScheduleSwowRunCommand extends Command
     {
         // 设置协程并发数
         $maxConcurrency = (int) $this->option('max-concurrency');
-        config(['schedule.swow.max_coroutines' => $maxConcurrency]);
+        Config::set('schedule.swow.max_coroutines', $maxConcurrency);
 
         // 设置 tick 间隔
         $tickMs = (int) $this->option('tick-ms');
-        config(['schedule.swow.loop_tick_ms' => $tickMs]);
+        Config::set('schedule.swow.loop_tick_ms', $tickMs);
 
         // 设置 Worker 数
         $workers = (int) $this->option('workers');
-        config(['schedule.precision.workers' => $workers]);
+        Config::set('schedule.precision.workers', $workers);
 
-        // 忽略用户中止
-        if (function_exists('pcntl_async_signals')) {
+        // 信号异步处理（仅 Unix + 有 pcntl 时，SwowScheduler 内部用 Signal::wait 兜底）
+        if (DIRECTORY_SEPARATOR !== '\\' && function_exists('pcntl_async_signals')) {
             pcntl_async_signals(true);
         }
 
@@ -84,16 +64,7 @@ class ScheduleSwowRunCommand extends Command
     }
 
     /**
-     * 前台运行
-     */
-    private function runForeground(): void
-    {
-        $scheduler = new SwowScheduler();
-        $scheduler->run();
-    }
-
-    /**
-     * 守护进程模式
+     * 守护进程模式（仅 Unix/Linux/macOS）
      */
     private function runAsDaemon(): void
     {
@@ -102,14 +73,19 @@ class ScheduleSwowRunCommand extends Command
         // 检查是否已在运行
         if (file_exists($pidFile)) {
             $oldPid = (int) file_get_contents($pidFile);
-            if ($oldPid > 0 && posix_kill($oldPid, 0)) {
+            if ($oldPid > 0 && function_exists('posix_kill') && posix_kill($oldPid, 0)) {
                 $this->error("调度器已在运行 (PID: {$oldPid})");
                 return;
             }
-            unlink($pidFile);
+            @unlink($pidFile);
         }
 
         // Fork 子进程
+        if (!function_exists('pcntl_fork')) {
+            $this->error('pcntl_fork 不可用，无法以守护进程模式运行');
+            return;
+        }
+
         $pid = pcntl_fork();
 
         if ($pid === -1) {
@@ -130,10 +106,22 @@ class ScheduleSwowRunCommand extends Command
         }
 
         // 重定向标准输入输出
-        fclose(STDIN);
-        fclose(STDOUT);
-        fclose(STDERR);
+        if (is_resource(STDIN)) { fclose(STDIN); }
+        if (is_resource(STDOUT)) { fclose(STDOUT); }
+        if (is_resource(STDERR)) { fclose(STDERR); }
 
         $this->runForeground();
+    }
+
+    /**
+     * 前台运行
+     */
+    private function runForeground(): void
+    {
+        $this->info('Starting Swow Scheduler...');
+        $this->info('Press Ctrl+C to stop gracefully');
+
+        $scheduler = new SwowScheduler();
+        $scheduler->run();
     }
 }
