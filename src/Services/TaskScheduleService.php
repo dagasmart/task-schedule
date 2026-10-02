@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Database\Eloquent\Builder;
 use DagaSmart\TaskSchedule\Models\TaskSchedule;
 use DagaSmart\TaskSchedule\Enums\PrecisionLevel;
-use DagaSmart\TaskSchedule\Enums\TaskStatus;
+use DagaSmart\TaskSchedule\Enums\TaskState;
 
 /**
  * 任务调度服务类
@@ -98,9 +98,9 @@ class TaskScheduleService extends AdminService
     /**
      * 状态选项
      */
-    public function statusOption(): array
+    public function stateOption(): array
     {
-        return $this->getModel()->statusOption();
+        return $this->getModel()->stateOption();
     }
 
     /**
@@ -225,7 +225,7 @@ class TaskScheduleService extends AdminService
         // 检查是否有正在执行的任务
         $runningCount = DB::table('task_schedule_log')
             ->where('task_id', $model->id)
-            ->where('status', TaskStatus::RUNNING->value)
+            ->where('state', TaskState::RUNNING->value)
             ->count();
 
         if ($runningCount > 0) {
@@ -306,7 +306,7 @@ class TaskScheduleService extends AdminService
         if ($task->without_overlapping) {
             $isRunning = DB::table('task_schedule_log')
                 ->where('task_id', $task->id)
-                ->where('status', TaskStatus::RUNNING->value)
+                ->where('state', TaskState::RUNNING->value)
                 ->exists();
 
             if ($isRunning) {
@@ -348,7 +348,7 @@ class TaskScheduleService extends AdminService
                 'task_name' => $task->task_name,
                 'command' => $task->command,
                 'description' => $task->description,
-                'status' => $exitCode === 0 ? TaskStatus::SUCCESS->value : TaskStatus::FAILED->value,
+                'state' => $exitCode === 0 ? TaskState::SUCCESS->value : TaskState::FAILED->value,
                 'exit_code' => $exitCode,
                 'output' => json_encode(['output' => Artisan::output()]),
                 'started_at' => now(),
@@ -366,7 +366,7 @@ class TaskScheduleService extends AdminService
                 'task_name' => $task->task_name,
                 'command' => $task->command,
                 'description' => $task->description,
-                'status' => TaskStatus::FAILED->value,
+                'state' => TaskState::FAILED->value,
                 'exit_code' => 1,
                 'output' => json_encode(['error' => $e->getMessage()]),
                 'started_at' => now(),
@@ -462,9 +462,9 @@ class TaskScheduleService extends AdminService
             'active_tasks' => DB::table($table)->where('active', true)->count(),
             'inactive_tasks' => DB::table($table)->where('active', false)->count(),
             'total_executions' => DB::table($logTable)->count(),
-            'success_count' => DB::table($logTable)->where('status', TaskStatus::SUCCESS->value)->count(),
-            'failed_count' => DB::table($logTable)->where('status', TaskStatus::FAILED->value)->count(),
-            'running_count' => DB::table($logTable)->where('status', TaskStatus::RUNNING->value)->count(),
+            'success_count' => DB::table($logTable)->where('state', TaskState::SUCCESS->value)->count(),
+            'failed_count' => DB::table($logTable)->where('state', TaskState::FAILED->value)->count(),
+            'running_count' => DB::table($logTable)->where('state', TaskState::RUNNING->value)->count(),
             'avg_duration' => DB::table($logTable)->avg('duration') ?? 0,
             'max_duration' => DB::table($logTable)->max('duration') ?? 0,
             'by_precision' => $this->getCountByPrecision(),
@@ -503,7 +503,7 @@ class TaskScheduleService extends AdminService
     private function getRecentFailures(): array
     {
         return DB::table(config('schedule.log', 'task_schedule_log'))
-            ->where('status', TaskStatus::FAILED->value)
+            ->where('state', TaskState::FAILED->value)
             ->orderBy('created_at', 'desc')
             ->limit(10)
             ->get()

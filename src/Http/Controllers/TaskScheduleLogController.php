@@ -4,7 +4,7 @@ namespace DagaSmart\TaskSchedule\Http\Controllers;
 
 use DagaSmart\BizAdmin\Renderers\Page;
 use DagaSmart\TaskSchedule\Services\TaskScheduleLogService;
-use DagaSmart\TaskSchedule\Enums\TaskStatus;
+use DagaSmart\TaskSchedule\Enums\TaskState;
 
 class TaskScheduleLogController extends AdminController
 {
@@ -17,12 +17,12 @@ class TaskScheduleLogController extends AdminController
             ->filter(
                 $this->baseFilter()->body([
                     amis()->TextControl('task_name', '任务名称')->clearable()->size('sm'),
-                    amis()->SelectControl('status', '执行状态')
+                    amis()->SelectControl('state', '执行状态')
                         ->options([
-                            ['label' => '运行中', 'value' => TaskStatus::RUNNING->value],
-                            ['label' => '成功', 'value' => TaskStatus::SUCCESS->value],
-                            ['label' => '失败', 'value' => TaskStatus::FAILED->value],
-                            ['label' => '超时', 'value' => TaskStatus::TIMEOUT->value],
+                            ['label' => '运行中', 'value' => TaskState::RUNNING->value],
+                            ['label' => '成功', 'value' => TaskState::SUCCESS->value],
+                            ['label' => '失败', 'value' => TaskState::FAILED->value],
+                            ['label' => '超时', 'value' => TaskState::TIMEOUT->value],
                         ])
                         ->clearable()
                         ->size('sm'),
@@ -42,7 +42,7 @@ class TaskScheduleLogController extends AdminController
                 amis()->TableColumn('id', 'ID')->sortable()->width(60)->fixed('left'),
                 amis()->TableColumn('task_name', '任务名称')->width(150)->fixed('left'),
                 amis()->TableColumn('command', '执行命令')->width(250)->set('textOverflow', 'ellipsis'),
-                amis()->TableColumn('status', '状态')->width(80)
+                amis()->TableColumn('state', '状态')->width(80)
                     ->set('type', 'mapping')
                     ->set('map', [
                         '1' => '<span class="label label-info">运行中</span>',

@@ -20,7 +20,7 @@ class TaskScheduleRun extends Model
     protected $fillable = [
         'task_id', 'event_name', 'command',
         'expression', 'timezone',
-        'status',           // running / success / failed / skipped
+        'state',           // running / success / failed / skipped
         'exit_code', 'output', 'error_message',
         'started_at', 'finished_at', 'duration',
         'mutex_name', 'skipped_because_overlapping',

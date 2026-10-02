@@ -8,7 +8,7 @@ use DagaSmart\TaskSchedule\Services\TaskScheduleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use DagaSmart\TaskSchedule\Enums\PrecisionLevel;
-use DagaSmart\TaskSchedule\Enums\TaskStatus;
+use DagaSmart\TaskSchedule\Enums\TaskState;
 
 /**
  * 任务调度控制器
@@ -30,7 +30,7 @@ class TaskScheduleController extends AdminController
                         ->clearable()
                         ->size('sm'),
                     amis()->SelectControl('active', '任务状态')
-                        ->options($this->service->statusOption())
+                        ->options($this->service->stateOption())
                         ->multiple()
                         ->checkAll()
                         ->clearable()

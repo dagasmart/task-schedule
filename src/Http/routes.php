@@ -23,6 +23,6 @@ Route::resource('task-schedule/log', Controllers\TaskScheduleLogController::clas
 // 统计分析
 Route::get('task-schedule/stat/dashboard', [Controllers\TaskScheduleStatController::class, 'dashboard']);
 Route::get('task-schedule/stat/summary', [Controllers\TaskScheduleStatController::class, 'summary']);
-Route::get('task-schedule/stat/status-distribution', [Controllers\TaskScheduleStatController::class, 'statusDistribution']);
+Route::get('task-schedule/stat/state-distribution', [Controllers\TaskScheduleStatController::class, 'stateDistribution']);
 Route::get('task-schedule/stat/hourly-trend', [Controllers\TaskScheduleStatController::class, 'hourlyTrend']);
 Route::get('task-schedule/stat', [Controllers\TaskScheduleStatController::class, 'index']);

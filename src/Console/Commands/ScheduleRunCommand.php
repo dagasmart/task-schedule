@@ -6,7 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use DagaSmart\TaskSchedule\Models\TaskSchedule;
 use DagaSmart\TaskSchedule\Models\TaskScheduleRun;
-use DagaSmart\TaskSchedule\Enums\TaskStatus;
+use DagaSmart\TaskSchedule\Enums\TaskState;
 
 class ScheduleRunCommand extends Command
 {
@@ -111,7 +111,7 @@ class ScheduleRunCommand extends Command
             'dispatch_id' => $dispatchId,
             'worker_id' => gethostname() . '_' . getmypid(),
             'server_id' => gethostname(),
-            'status' => TaskStatus::RUNNING->value,
+            'state' => TaskState::RUNNING->value,
             'started_at' => now(),
         ]);
 
@@ -123,7 +123,7 @@ class ScheduleRunCommand extends Command
             $lockAcquired = Cache::lock($lockKey, $ttl)->get();
             if (!$lockAcquired) {
                 $run->update([
-                    'status' => TaskStatus::SKIPPED->value,
+                    'state' => TaskState::SKIPPED->value,
                     'finished_at' => now(),
                 ]);
                 $this->warn("Task [{$task->id}] skipped (overlap)");
@@ -148,10 +148,10 @@ class ScheduleRunCommand extends Command
             system($fullCommand, $exitCode);
 
             $duration = round(microtime(true) - $startTime, 4);
-            $status = $exitCode === 0 ? TaskStatus::SUCCESS : TaskStatus::FAILED;
+            $state = $exitCode === 0 ? TaskState::SUCCESS : TaskState::FAILED;
 
             $run->update([
-                'status' => $status->value,
+                'state' => $state->value,
                 'exit_code' => $exitCode,
                 'duration' => $duration,
                 'finished_at' => now(),
@@ -168,7 +168,7 @@ class ScheduleRunCommand extends Command
             $duration = round(microtime(true) - $startTime, 4);
 
             $run->update([
-                'status' => TaskStatus::FAILED->value,
+                'state' => TaskState::FAILED->value,
                 'exit_code' => 1,
                 'duration' => $duration,
                 'output' => ['error' => $e->getMessage()],
@@ -211,7 +211,7 @@ class ScheduleRunCommand extends Command
             'dispatch_id' => $dispatchId,
             'worker_id' => gethostname() . '_' . getmypid(),
             'server_id' => gethostname(),
-            'status' => TaskStatus::RUNNING->value,
+            'state' => TaskState::RUNNING->value,
             'started_at' => now(),
         ]);
 

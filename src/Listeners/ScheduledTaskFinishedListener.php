@@ -23,13 +23,13 @@ class ScheduledTaskFinishedListener
         // ========== task_schedule_run ==========
         try {
             $run = TaskScheduleRun::where('command', $command)
-                ->where('status', 'running')
+                ->where('state', 'running')
                 ->orderBy('id', 'desc')
                 ->first();
 
             if ($run) {
                 $run->update([
-                    'status'      => 'success',
+                    'state'      => 'success',
                     'duration'    => $runtime,
                     'finished_at' => now(),
                     'exit_code'   => 0,

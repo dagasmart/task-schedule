@@ -182,7 +182,7 @@ class TaskSchedule extends Model
     /**
      * 状态选项
      */
-    public function statusOption(): array
+    public function stateOption(): array
     {
         return [
             ['label' => '暂停下线', 'value' => 0],

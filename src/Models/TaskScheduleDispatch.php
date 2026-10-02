@@ -18,7 +18,7 @@ class TaskScheduleDispatch extends Model
     public $table = 'task_schedule_dispatch';
 
     protected $fillable = [
-        'task_id', 'dispatch_id', 'status', 'worker_id', 'server_id',
+        'task_id', 'dispatch_id', 'state', 'worker_id', 'server_id',
         'scheduled_at', 'started_at', 'finished_at', 'lock_key',
     ];
 
@@ -42,9 +42,9 @@ class TaskScheduleDispatch extends Model
      */
     public function scopeExecuting(Builder $query): Builder
     {
-        return $query->whereIn('status', [
-            \DagaSmart\TaskSchedule\Enums\TaskStatus::RUNNING->value,
-            \DagaSmart\TaskSchedule\Enums\TaskStatus::PENDING->value,
+        return $query->whereIn('state', [
+            \DagaSmart\TaskSchedule\Enums\TaskState::RUNNING->value,
+            \DagaSmart\TaskSchedule\Enums\TaskState::PENDING->value,
         ]);
     }
 

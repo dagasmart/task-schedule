@@ -151,7 +151,7 @@ class DistributedLock
             DB::table('task_schedule_dispatch')->insert([
                 'task_id' => abs($this->lockKey % 1000000),
                 'dispatch_id' => uniqid('lock_', true),
-                'status' => 1,
+                'state' => 1,
                 'worker_id' => gethostname() . '_' . getmypid(),
                 'server_id' => gethostname(),
                 'lock_key' => $this->lockKey,

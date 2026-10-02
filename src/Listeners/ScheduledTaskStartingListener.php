@@ -32,7 +32,7 @@ class ScheduledTaskStartingListener
                 'command'          => $command,
                 'expression'       => $expression,
                 'timezone'         => $timezone,
-                'status'           => 'running',
+                'state'           => 'running',
                 'started_at'       => now(),
                 'mutex_name'       => $task->mutexName ?? null,
                 'skipped_because_overlapping' => false,

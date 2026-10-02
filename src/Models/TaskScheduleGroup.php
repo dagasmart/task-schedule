@@ -14,7 +14,7 @@ class TaskScheduleGroup extends Model
 
     protected $primaryKey = 'id';
 
-    const STATUS_ACTIVE = ['success', 'danger', 'warning', 'info'];
+    const STATE_ACTIVE = ['success', 'danger', 'warning', 'info'];
 
     protected $fillable = [
         'group_name', 'description', 'sort', 'parent_id', 'module',

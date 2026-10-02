@@ -4,7 +4,7 @@ namespace DagaSmart\TaskSchedule\Services;
 
 use Illuminate\Database\Eloquent\Builder;
 use DagaSmart\TaskSchedule\Models\TaskScheduleLog;
-use DagaSmart\TaskSchedule\Enums\TaskStatus;
+use DagaSmart\TaskSchedule\Enums\TaskState;
 
 /**
  * 任务日志服务类
@@ -27,17 +27,17 @@ class TaskScheduleLogService extends AdminService
     /**
      * 按状态统计
      */
-    public function getStatsByStatus(): array
+    public function getStatsByState(): array
     {
         $table = config('schedule.log', 'task_schedule_log');
 
         return DB::table($table)
-            ->select('status', DB::raw('count(*) as count'))
-            ->groupBy('status')
+            ->select('state', DB::raw('count(*) as count'))
+            ->groupBy('state')
             ->get()
             ->mapWithKeys(function ($item) {
-                $status = TaskStatus::tryFrom($item->status);
-                return [$status ? $status->label() : 'unknown' => $item->count];
+                $state = TaskState::tryFrom($item->state);
+                return [$state ? $state->label() : 'unknown' => $item->count];
             })
             ->toArray();
     }
@@ -54,8 +54,8 @@ class TaskScheduleLogService extends AdminService
             ->select(
                 DB::raw('EXTRACT(HOUR FROM created_at) as hour'),
                 DB::raw('count(*) as total'),
-                DB::raw('sum(case when status = 2 then 1 else 0 end) as success'),
-                DB::raw('sum(case when status = 3 then 1 else 0 end) as failed')
+                DB::raw('sum(case when state = 2 then 1 else 0 end) as success'),
+                DB::raw('sum(case when state = 3 then 1 else 0 end) as failed')
             )
             ->where('created_at', '>=', $since)
             ->groupBy(DB::raw('EXTRACT(HOUR FROM created_at)'))

@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use DagaSmart\TaskSchedule\Models\TaskSchedule;
 use DagaSmart\TaskSchedule\Models\TaskScheduleRun;
-use DagaSmart\TaskSchedule\Enums\TaskStatus;
+use DagaSmart\TaskSchedule\Enums\TaskState;
 use DagaSmart\TaskSchedule\Enums\PrecisionLevel;
 use DagaSmart\TaskSchedule\Engine\{TaskEntry, TimingWheel};
 
@@ -390,7 +390,7 @@ class SwowScheduler
         try {
             DB::statement('SELECT release_task_lock(?, ?)', [
                 $taskId,
-                TaskStatus::SUCCESS->value,
+                TaskState::SUCCESS->value,
             ]);
         } catch (\Throwable) {
         }
@@ -440,7 +440,7 @@ class SwowScheduler
             if (($taskData['without_overlapping'] ?? false)) {
                 if (!isset($this->acquiredLocks[$taskId]) && !$this->acquireExecutionLock($taskId, $dispatchId)) {
                     $run->update([
-                        'status' => TaskStatus::SKIPPED->value,
+                        'state' => TaskState::SKIPPED->value,
                         'finished_at' => now(),
                     ]);
                     $this->stats['tasks_skipped']++;
@@ -458,10 +458,10 @@ class SwowScheduler
             };
 
             $duration = round(microtime(true) - $startTime, 4);
-            $status = $exitCode === 0 ? TaskStatus::SUCCESS : TaskStatus::FAILED;
+            $state = $exitCode === 0 ? TaskState::SUCCESS : TaskState::FAILED;
 
             $run->update([
-                'status' => $status->value,
+                'state' => $state->value,
                 'exit_code' => $exitCode,
                 'duration' => $duration,
                 'finished_at' => now(),
@@ -485,7 +485,7 @@ class SwowScheduler
             $duration = round(microtime(true) - $startTime, 4);
 
             $run->update([
-                'status' => TaskStatus::FAILED->value,
+                'state' => TaskState::FAILED->value,
                 'exit_code' => 1,
                 'duration' => $duration,
                 'output' => ['error' => $e->getMessage()],
@@ -636,7 +636,7 @@ class SwowScheduler
             'dispatch_id' => $dispatchId,
             'worker_id' => $this->workerId,
             'server_id' => $this->serverId,
-            'status' => TaskStatus::RUNNING->value,
+            'state' => TaskState::RUNNING->value,
             'started_at' => now(),
         ]);
     }

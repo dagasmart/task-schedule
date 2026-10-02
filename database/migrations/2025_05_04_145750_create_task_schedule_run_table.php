@@ -35,7 +35,7 @@ return new class extends Migration
             $table->string('expression', 100)->nullable()->comment('cron 表达式快照');
             $table->string('timezone', 64)->nullable()->comment('时区快照');
 
-            $table->string('status', 16)->comment('状态：running/success/failed/skipped');
+            $table->string('state', 16)->comment('状态：running/success/failed/skipped');
             $table->integer('exit_code')->nullable()->comment('退出码');
             $table->decimal('duration', 10, 3)->nullable()->comment('耗时(秒)');
             $table->text('output')->nullable()->comment('输出信息');
@@ -53,7 +53,7 @@ return new class extends Migration
 
             $table->index('task_id');
             $table->index('event_name');
-            $table->index('status');
+            $table->index('state');
             $table->index('started_at');
         });
 

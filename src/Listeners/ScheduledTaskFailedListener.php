@@ -24,13 +24,13 @@ class ScheduledTaskFailedListener
         // ========== task_schedule_run ==========
         try {
             $run = TaskScheduleRun::where('command', $command)
-                ->where('status', 'running')
+                ->where('state', 'running')
                 ->orderBy('id', 'desc')
                 ->first();
 
             if ($run) {
                 $run->update([
-                    'status'        => 'failed',
+                    'state'        => 'failed',
                     'error_message' => $exception?->getMessage(),
                     'finished_at'   => now(),
                     'exit_code'     => $exception?->getCode() ?: 1,
@@ -43,7 +43,7 @@ class ScheduledTaskFailedListener
                     'command'       => $command,
                     'expression'    => $task->expression ?? null,
                     'timezone'      => $task->timezone ?? null,
-                    'status'        => 'failed',
+                    'state'        => 'failed',
                     'error_message' => $exception?->getMessage(),
                     'finished_at'   => now(),
                     'exit_code'     => $exception?->getCode() ?: 1,

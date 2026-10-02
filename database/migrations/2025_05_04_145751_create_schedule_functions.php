@@ -105,7 +105,7 @@ class CreateScheduleFunctions extends Migration
         DB::statement('
             CREATE OR REPLACE FUNCTION release_task_lock(
                 p_dispatch_id TEXT,
-                p_status INTEGER DEFAULT 2
+                p_state INTEGER DEFAULT 2
             )
             RETURNS VOID AS $$
             BEGIN

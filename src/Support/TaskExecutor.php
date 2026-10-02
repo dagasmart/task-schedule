@@ -3,7 +3,7 @@ declare(strict_types=1);
 namespace DagaSmart\TaskSchedule\Support;
 
 use DagaSmart\TaskSchedule\Models\TaskSchedule;
-use DagaSmart\TaskSchedule\Enums\TaskStatus;
+use DagaSmart\TaskSchedule\Enums\TaskState;
 use DagaSmart\TaskSchedule\Models\TaskScheduleLog;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Artisan;
@@ -115,7 +115,7 @@ class TaskExecutor
         if ($limit > 0) {
             $runningCount = TaskScheduleLog::query()
                 ->where('task_id', $taskData['id'])
-                ->where('status', TaskStatus::RUNNING->value)
+                ->where('state', TaskState::RUNNING->value)
                 ->count();
 
             if ($runningCount >= $limit) {
@@ -356,7 +356,7 @@ class TaskExecutor
             'task_name' => $task['task_name'] ?? '',
             'command' => $task['command'] ?? '',
             'description' => $task['description'] ?? '',
-            'status' => TaskStatus::RUNNING->value,
+            'state' => TaskState::RUNNING->value,
             'worker_id' => $this->workerId,
             'started_at' => now(),
         ]);
@@ -368,7 +368,7 @@ class TaskExecutor
     private function updateLogRecord(TaskScheduleLog $log, bool $success, int $exitCode, float $duration, ?string $error = null): void
     {
         $log->update([
-            'status' => $success ? TaskStatus::SUCCESS->value : TaskStatus::FAILED->value,
+            'state' => $success ? TaskState::SUCCESS->value : TaskState::FAILED->value,
             'exit_code' => $exitCode,
             'duration' => $duration,
             'output' => $error ? json_encode(['error' => $error]) : null,
@@ -391,7 +391,7 @@ class TaskExecutor
             'task_name' => $task['task_name'] ?? '',
             'command' => $task['command'] ?? '',
             'description' => "Scheduled retry (attempt 1/{$retryTimes})",
-            'status' => TaskStatus::RETRYING->value,
+            'state' => TaskState::RETRYING->value,
             'exit_code' => $exitCode,
             'started_at' => now(),
             'finished_at' => now(),

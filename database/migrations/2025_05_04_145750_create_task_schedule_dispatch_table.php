@@ -30,7 +30,7 @@ return new class extends Migration
             $table->id();
             $table->unsignedBigInteger('task_id')->comment('任务ID');
             $table->string('dispatch_id', 64)->comment('分发唯一ID(UUID)');
-            $table->tinyInteger('status')->default(0)->comment('状态: 0待执行 1执行中 2成功 3失败/超时');
+            $table->tinyInteger('state')->default(0)->comment('状态: 0待执行 1执行中 2成功 3失败/超时');
             $table->string('worker_id', 128)->nullable()->comment('Worker标识');
             $table->string('server_id', 128)->nullable()->comment('服务器标识');
             $table->bigInteger('lock_key')->nullable()->comment('PostgreSQL Advisory Lock Key');
@@ -42,11 +42,11 @@ return new class extends Migration
             // ✅ 显式命名索引，PG 全局不冲突
             $table->index('task_id', 'tsd_task_id_index');
             $table->index('dispatch_id', 'tsd_dispatch_id_index');
-            $table->index('status', 'tsd_status_index');
+            $table->index('state', 'tsd_state_index');
             $table->index('worker_id', 'tsd_worker_id_index');
             $table->index('server_id', 'tsd_server_id_index');
             $table->index('scheduled_at', 'tsd_scheduled_at_index');
-            $table->index(['status', 'started_at'], 'tsd_status_started_index');
+            $table->index(['state', 'started_at'], 'tsd_state_started_index');
 
             // 唯一约束
             $table->unique(['task_id', 'dispatch_id'], 'uk_task_schedule_dispatch_unique');
@@ -83,9 +83,9 @@ return new class extends Migration
                 v_updated INTEGER;
             BEGIN
                 UPDATE {$this->name}
-                SET status = 3,
+                SET state = 3,
                     finished_at = NOW()
-                WHERE status IN (0, 1)
+                WHERE state IN (0, 1)
                   AND started_at < NOW() - INTERVAL '1 hour';
 
                 GET DIAGNOSTICS v_updated = ROW_COUNT;

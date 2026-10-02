@@ -35,9 +35,9 @@ class TaskScheduleStatService extends AdminService
         // 执行记录维度
         $runs = TaskScheduleRun::query()
             ->where('started_at', '>=', $window)
-            ->selectRaw('status, COUNT(*) as cnt')
-            ->groupBy('status')
-            ->pluck('cnt', 'status')
+            ->selectRaw('state, COUNT(*) as cnt')
+            ->groupBy('state')
+            ->pluck('cnt', 'state')
             ->toArray();
 
         $success = (int) ($runs['success'] ?? 0);
@@ -49,14 +49,14 @@ class TaskScheduleStatService extends AdminService
         // 平均耗时：仅统计已结束的成功任务
         $avgDuration = TaskScheduleRun::query()
             ->where('started_at', '>=', $window)
-            ->where('status', 'success')
+            ->where('state', 'success')
             ->whereNotNull('duration')
             ->avg('duration') ?? 0;
 
         // 失败 Top：按任务聚合
         $topFailures = TaskScheduleRun::query()
             ->where('started_at', '>=', $window)
-            ->where('status', 'failed')
+            ->where('state', 'failed')
             ->select('task_id', DB::raw('COUNT(*) as fail_cnt'))
             ->groupBy('task_id')
             ->orderByDesc('fail_cnt')
@@ -97,14 +97,14 @@ class TaskScheduleStatService extends AdminService
 
         $rows = TaskScheduleRun::query()
             ->where('started_at', '>=', $from)
-            ->selectRaw('DATE(started_at) as date, status, COUNT(*) as cnt')
-            ->groupBy('date', 'status')
+            ->selectRaw('DATE(started_at) as date, state, COUNT(*) as cnt')
+            ->groupBy('date', 'state')
             ->orderBy('date')
             ->get();
 
         $map = [];
         foreach ($rows as $row) {
-            $map[$row->date][$row->status] = $row->cnt;
+            $map[$row->date][$row->state] = $row->cnt;
         }
 
         $dates = [];
@@ -133,16 +133,16 @@ class TaskScheduleStatService extends AdminService
         return TaskScheduleRun::query()
             ->whereNotNull('finished_at')
             ->where('started_at', '>=', now()->subDays(self::DEFAULT_WINDOW_DAYS))
-            ->select('status', DB::raw('COUNT(*) as value'))
-            ->groupBy('status')
+            ->select('state', DB::raw('COUNT(*) as value'))
+            ->groupBy('state')
             ->get()
             ->map(fn ($row) => [
-                'name'  => match ($row->status) {
+                'name'  => match ($row->state) {
                     'success' => '成功',
                     'failed'  => '失败',
                     'running' => '运行中',
                     'skipped' => '已跳过',
-                    default   => $row->status,
+                    default   => $row->state,
                 },
                 'value' => $row->value,
             ])
