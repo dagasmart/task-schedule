@@ -11,6 +11,7 @@ use Illuminate\Console\Events\ScheduledTaskFailed;
 use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskStarting;
 
+use DagaSmart\BizAdmin\Renderers\Form;
 use DagaSmart\BizAdmin\Extend\ServiceProvider;
 use DagaSmart\TaskSchedule\Models\TaskSchedule;
 use DagaSmart\TaskSchedule\Listeners\ScheduledTaskFailedListener;
@@ -338,4 +339,31 @@ class TaskScheduleServiceProvider extends ServiceProvider
             dirname(__DIR__, 1) . '/Database/Migrations/' => database_path('migrations'),
         ], 'schedule-migrations');
     }
+
+    public function settingForm(): ?Form
+    {
+        return $this->baseSettingForm()->body([
+            amis()->SwitchControl('swow.enabled', '调度引擎')
+                ->onText('协程')
+                ->offText('原生')
+                ->value(0)
+                ->required(),
+            amis()->NumberControl('swow.max_coroutines', '协程最大并发数')
+                ->size('sm')
+                ->hiddenOn('${!swow.enabled}')
+                ->clearValueOnHidden(true)  // ✅ 隐藏时清空值，不提交
+                ->value(1024),
+            amis()->NumberControl('swow.stack_size', '协程栈大小（字节）')
+                ->size('sm')
+                ->hiddenOn('${!swow.enabled}')
+                ->clearValueOnHidden(true)  // ✅ 隐藏时清空值，不提交
+                ->value(8388608),
+            amis()->NumberControl('swow.loop_tick_ms', '事件循环tick间隔（毫秒）')
+                ->size('sm')
+                ->hiddenOn('${!swow.enabled}')
+                ->clearValueOnHidden(true)  // ✅ 隐藏时清空值，不提交
+                ->value(10),
+        ]);
+    }
+
 }
