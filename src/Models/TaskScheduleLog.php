@@ -11,14 +11,26 @@ class TaskScheduleLog extends Model
     public $table = 'task_schedule_log';
 
     protected $fillable = [
-        'task_id', 'task_name', 'command', 'description', 'state',
-        'result', 'output', 'exit_code', 'duration', 'started_at', 'finished_at',
-        'memory_peak', 'pid', 'worker_id', 'module',
+        'task_id',
+        'task_name',
+        'command',
+        'description',
+        'state',         // boolean: true=成功, false=失败
+        'result',        // jsonb: 业务结果
+        'output',        // jsonb: 输出信息
+        'exit_code',
+        'duration',
+        'memory_peak',
+        'pid',
+        'worker_id',
+        'module',
+        'started_at',
+        'finished_at',
     ];
 
     protected $casts = [
-        'output'       => 'array',
-        'result'       => 'array',
+        'output'       => 'array', // jsonb → array
+        'result'       => 'array', // jsonb → array
         'duration'     => 'float',
         'exit_code'    => 'integer',
         'memory_peak'  => 'integer',

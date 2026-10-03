@@ -30,7 +30,7 @@ return new class extends Migration
             $table->comment('任务执行记录表');
             $table->id();
             $table->unsignedBigInteger('task_id')->nullable()->comment('关联 task_schedule.id');
-            $table->string('event_name')->comment('事件名称，即 Event::name()');
+            $table->string('event_name')->nullable()->comment('事件名称，即 Event::name()');
             $table->string('command')->nullable()->comment('命令快照');
             $table->string('expression', 100)->nullable()->comment('cron 表达式快照');
             $table->string('timezone', 64)->nullable()->comment('时区快照');

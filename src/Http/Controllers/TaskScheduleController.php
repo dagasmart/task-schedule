@@ -121,7 +121,25 @@ class TaskScheduleController extends AdminController
      */
     public function form($isEdit = false): Form
     {
-        return $this->baseForm()->mode('normal')->body([
+        return $this->baseForm()->mode('normal')->data([
+            'descMap' => [
+                PrecisionLevel::SECOND->value => '6段(秒 分 时 日 月 周)，如：*/30 * * * * *',
+                PrecisionLevel::MINUTE->value => '5段(分 时 日 月 周)，如：0-59 * * * *',
+                PrecisionLevel::HOUR->value => '5段(分 时 日 月 周)，如：* 0-23 * * *',
+                PrecisionLevel::DAY->value => '5段(分 时 日 月 周)，如：* * 1-31 * *',
+                PrecisionLevel::WEEK->value => '5段(分 时 日 月 周)，如：* * * * 0-6',
+                PrecisionLevel::MONTH->value => '5段(分 时 日 月 周)，如：* * * 1-12 *',
+            ],
+            'placeholderMap' => [
+                PrecisionLevel::SECOND->value => '*/30 * * * * *',
+                PrecisionLevel::MINUTE->value => '0-59 * * * *',
+                PrecisionLevel::HOUR->value => '* 0-23 * * *',
+                PrecisionLevel::DAY->value => '* * 1-31 * *',
+                PrecisionLevel::WEEK->value => '* * * * 0-6',
+                PrecisionLevel::MONTH->value => '* * * 1-12 *',
+            ],
+            '_expression' => '${expression}',
+        ])->body([
             amis()->Tabs()->tabsMode('chrome')->className('rounded')->tabs([
                 // 基本信息
                 amis()->Tab()->title('基本信息')->body([
@@ -145,7 +163,8 @@ class TaskScheduleController extends AdminController
                             ->description('命令如: cache:clear | 类名如: App\\Jobs\\ProcessOrder | URL如: https://api.example.com/webhook'),
                         amis()->TextControl('parameters', '执行参数')
                             ->labelClassName('font-bold text-secondary')
-                            ->description('JSON数组格式，如: ["--force", "--verbose"]'),
+                            ->description('JSON数组格式，如: ["--force", "--verbose"]')
+                            ->placeholder('["--force", "--verbose"]'),
                         amis()->TextareaControl('description', '任务描述')
                             ->description('任务场景的描述，255字以内'),
                     ]),
@@ -156,13 +175,21 @@ class TaskScheduleController extends AdminController
                         amis()->SelectControl('precision', '调度精度')
                             ->options($this->service->precisionOption())
                             ->value(PrecisionLevel::MINUTE->value)
+                            ->clearable()
                             ->required()
                             ->labelClassName('font-bold text-secondary'),
-                        amis()->TextControl('expression', 'Cron表达式')
+                        amis()->TextControl('expression', 'Cron表达式（执行时间）')
                             ->labelClassName('font-bold text-secondary')
-                            ->required()
-                            ->description('5字段(分 时 日 月 周) 或 6字段(秒 分 时 日 月 周)')
-                            ->placeholder('*/5 * * * * 或 0 */1 * * * *'),
+                            ->clearValueOnHidden(true)
+                            ->description('${descMap[precision] || "请先选择调度精度"}')
+                            ->placeholder('${placeholderMap[precision] || ""}')
+//                            ->validations('matchRegexp')
+//                            ->validationErrors([
+//                                'matchRegexp' => '${precision == ' . PrecisionLevel::SECOND->value . ' ? "格式错误：需 6 段" : "格式错误：需 5 段"}',
+//                            ])
+                            ->disabledOn('${!precision}')
+                            ->clearable()
+                            ->required(),
                         amis()->SwitchControl('active', '任务状态')
                             ->onText('正常上线')->offText('暂停下线')
                             ->labelClassName('font-bold text-secondary'),
@@ -252,7 +279,7 @@ class TaskScheduleController extends AdminController
                         ->labelField('level_name')
                         ->static(),
                     amis()->TextControl('command', '执行命令')->static(),
-                    amis()->TextControl('expression', 'Cron表达式')->static(),
+                    amis()->TextControl('expression', 'Cron表达式')->description('执行时间')->static(),
                     amis()->TextControl('precision', '精度级别')
                         ->type('static-mapping')
                         ->set('map', $this->service->precisionMap())

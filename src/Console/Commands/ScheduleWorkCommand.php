@@ -11,6 +11,7 @@ class ScheduleWorkCommand extends Command
 {
     protected $signature = 'schedule:work
                             {--interval=60 : Run interval in seconds}
+                            {--precision=1 : Precision level (1=second, 2=minute)}
                             {--memory=128 : Memory limit in MB}
                             {--stop-on-failure : Stop on first failure}';
 

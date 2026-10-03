@@ -18,12 +18,20 @@ class TaskScheduleRun extends Model
     public $table = 'task_schedule_run';
 
     protected $fillable = [
-        'task_id', 'event_name', 'command',
-        'expression', 'timezone',
-        'state',           // running / success / failed / skipped
-        'exit_code', 'output', 'error_message',
-        'started_at', 'finished_at', 'duration',
-        'mutex_name', 'skipped_because_overlapping',
+        'task_id',
+        'event_name',
+        'command',
+        'expression',
+        'timezone',
+        'state',    // running / success / failed / skipped
+        'exit_code',
+        'output',
+        'error_message',
+        'started_at',
+        'finished_at',
+        'duration',
+        'mutex_name',
+        'skipped_because_overlapping',
     ];
 
     protected $casts = [

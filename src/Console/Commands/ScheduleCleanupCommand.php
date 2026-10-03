@@ -4,6 +4,7 @@ namespace DagaSmart\TaskSchedule\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use DagaSmart\TaskSchedule\Models\TaskScheduleRun;
 use DagaSmart\TaskSchedule\Models\TaskScheduleLog;
 
@@ -12,6 +13,7 @@ class ScheduleCleanupCommand extends Command
     protected $signature = 'schedule:cleanup
                             {--days=30 : Days to retain}
                             {--batch=1000 : Batch size}
+                            {--optimize : Optimize tables after cleanup}
                             {--force : Skip confirmation}';
 
     protected $description = 'Clean up old task schedule run and log records';
@@ -28,20 +30,14 @@ class ScheduleCleanupCommand extends Command
 
         $this->info("Cleaning up records older than {$days} days...");
 
-        // 清理 task_schedule_run
         $runCount = $this->cleanupTable(TaskScheduleRun::class, $days, $batch);
         $this->info("Cleaned {$runCount} run records");
 
-        // 清理 task_schedule_log
         $logCount = $this->cleanupTable(TaskScheduleLog::class, $days, $batch);
         $this->info("Cleaned {$logCount} log records");
 
-        // 调用存储过程（如果存在）
-        try {
-            DB::statement('SELECT cleanup_dispatch_records(?)', [$days]);
-            $this->info('Stored procedure cleanup_dispatch_records executed');
-        } catch (\Throwable $e) {
-            // 存储过程不存在或失败，忽略
+        if ($this->option('optimize')) {
+            $this->optimizeTables();
         }
 
         $this->info('Cleanup completed');
@@ -70,5 +66,26 @@ class ScheduleCleanupCommand extends Command
         } while ($deleted > 0);
 
         return $totalDeleted;
+    }
+
+    private function optimizeTables(): void
+    {
+        $driver = DB::getDriverName();
+        $tables = ['task_schedule_run', 'task_schedule_log'];
+
+        foreach ($tables as $table) {
+            try {
+                if ($driver === 'mysql') {
+                    DB::statement("OPTIMIZE TABLE `{$table}`");
+                } elseif ($driver === 'pgsql') {
+                    DB::statement("VACUUM ANALYZE {$table}");
+                } elseif ($driver === 'sqlite') {
+                    DB::statement("VACUUM");
+                }
+                $this->line("  Optimized table: {$table}");
+            } catch (\Throwable $e) {
+                $this->warn("  Skip optimize {$table}: " . $e->getMessage());
+            }
+        }
     }
 }

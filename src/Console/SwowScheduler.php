@@ -205,6 +205,10 @@ class SwowScheduler
         }
     }
 
+    /**
+     * 热重载秒级任务。
+     * 新增 → schedule，interval 变化 → cancel + re-schedule，已删除 → cancel。
+     */
     private function reloadSecondLevelTasks(): void
     {
         try {
@@ -222,17 +226,32 @@ class SwowScheduler
 
         foreach ($tasks as $task) {
             $freshIds[] = $task->id;
+            $entry = TaskEntry::fromArray($task->toArray());
+
             if (!$this->timingWheel->has($task->id)) {
-                $this->timingWheel->schedule(
-                    TaskEntry::fromArray($task->toArray()),
-                    $nowTs
-                );
+                $this->timingWheel->schedule($entry, $nowTs);
+                $this->logInfo("Task [{$task->id}] registered (new, interval={$entry->intervalSeconds}s)");
+            } else {
+                $registered = $this->timingWheel->getEntry($task->id);
+                if ($registered && $registered->intervalSeconds !== $entry->intervalSeconds) {
+                    $oldInterval = $registered->intervalSeconds;
+                    $this->timingWheel->cancel($task->id);
+                    $this->timingWheel->schedule($entry, $nowTs);
+                    $this->logInfo(sprintf(
+                        'Task [%d] re-registered (interval changed: %ds → %ds)',
+                        $task->id,
+                        $oldInterval,
+                        $entry->intervalSeconds
+                    ));
+                }
             }
         }
 
+        // 取消已停用/删除的任务
         foreach ($this->timingWheel->ids() as $registeredId) {
             if (!in_array($registeredId, $freshIds, true)) {
                 $this->timingWheel->cancel($registeredId);
+                $this->logInfo("Task [{$registeredId}] cancelled (disabled/deleted)");
             }
         }
 
@@ -410,10 +429,15 @@ class SwowScheduler
                 $this->activeCoroutines++;
                 Coroutine::run(function () use ($taskData) {
                     try {
+                        // ✅ 关键：每个任务协程用独立 DB 连接
+                        DB::purge('pgsql');
+
                         $this->executeTask($taskData);
                     } catch (\Throwable $e) {
                         $this->logError("Task execution error: " . $e->getMessage());
                     } finally {
+                        // 用完释放连接回连接池
+                        DB::purge('pgsql');
                         $this->activeCoroutines--;
                     }
                 });
@@ -437,12 +461,10 @@ class SwowScheduler
         $run = $this->createRunRecord($taskData, $dispatchId);
 
         try {
+            // 防重叠检查
             if (($taskData['without_overlapping'] ?? false)) {
                 if (!isset($this->acquiredLocks[$taskId]) && !$this->acquireExecutionLock($taskId, $dispatchId)) {
-                    $run->update([
-                        'state' => TaskState::SKIPPED->value,
-                        'finished_at' => now(),
-                    ]);
+                    $this->skipRunRecord($run, $taskData['mutex_name'] ?? null);
                     $this->stats['tasks_skipped']++;
                     return;
                 }
@@ -450,23 +472,15 @@ class SwowScheduler
 
             $exitCode = match ($taskType) {
                 'command' => $this->executeCommand($taskData),
-                'job' => $this->dispatchJob($taskData),
-                'url' => $this->callUrl($taskData),
-                'shell' => $this->executeShell($taskData),
+                'job'     => $this->dispatchJob($taskData),
+                'url'     => $this->callUrl($taskData),
+                'shell'   => $this->executeShell($taskData),
                 'closure' => $this->executeClosure($taskData),
-                default => throw new \InvalidArgumentException("Unknown task type: {$taskType}"),
+                default   => throw new \InvalidArgumentException("Unknown task type: {$taskType}"),
             };
 
             $duration = round(microtime(true) - $startTime, 4);
-            $state = $exitCode === 0 ? TaskState::SUCCESS : TaskState::FAILED;
-
-            $run->update([
-                'state' => $state->value,
-                'exit_code' => $exitCode,
-                'duration' => $duration,
-                'finished_at' => now(),
-                'memory_peak' => memory_get_peak_usage(true),
-            ]);
+            $this->finishRunRecord($run, $exitCode, $duration);
 
             if ($exitCode === 0) {
                 $this->stats['tasks_succeeded']++;
@@ -475,27 +489,26 @@ class SwowScheduler
             }
             $this->stats['total_duration'] += $duration;
 
+            // 慢任务告警
             $slowThreshold = Config::get('schedule.monitoring.slow_task_threshold', 30);
             if ($duration > $slowThreshold) {
-                $this->logWarning("Slow task detected [ID:{$taskId}] duration={$duration}s");
+                $this->logWarning("Slow task detected: {$command} ({$duration}s)");
             }
 
-            $this->logInfo("Task completed [ID:{$taskId}] exit={$exitCode} duration={$duration}s");
         } catch (\Throwable $e) {
             $duration = round(microtime(true) - $startTime, 4);
 
-            $run->update([
-                'state' => TaskState::FAILED->value,
-                'exit_code' => 1,
-                'duration' => $duration,
-                'output' => ['error' => $e->getMessage()],
-                'finished_at' => now(),
-            ]);
+            // 异常时也通过 finishRunRecord 标记失败
+            $this->finishRunRecord($run, 1, $duration, $e->getMessage());
 
             $this->stats['tasks_failed']++;
-            $this->logError("Task failed [ID:{$taskId}] error={$e->getMessage()}");
+            $this->logError("Task [ID:{$taskId}] exception: " . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
         } finally {
-            if (($taskData['without_overlapping'] ?? false)) {
+            // 释放锁（如果持有）
+            if (isset($this->acquiredLocks[$taskId])) {
                 $this->releaseExecutionLock($taskId);
             }
         }
@@ -625,19 +638,49 @@ class SwowScheduler
 
     /* ==================== Run 记录 ==================== */
 
-    private function createRunRecord(array $task, string $dispatchId): TaskScheduleRun
+    private function createRunRecord(array $taskData, string $dispatchId): TaskScheduleRun
     {
         return TaskScheduleRun::create([
-            'task_id' => $task['id'] ?? 0,
-            'task_name' => $task['task_name'] ?? '',
-            'event_name' => $task['event_name'] ?? $task['task_name'] ?? 'manual',
-            'command' => $task['command'] ?? '',
-            'description' => $task['description'] ?? '',
-            'dispatch_id' => $dispatchId,
-            'worker_id' => $this->workerId,
-            'server_id' => $this->serverId,
-            'state' => TaskState::RUNNING->value,
-            'started_at' => now(),
+            'task_id'     => $taskData['id'] ?? null,
+            'event_name'  => $taskData['command'] ?? 'manual',  // 命令即事件名
+            'command'     => $taskData['command'] ?? null,
+            'expression'  => $taskData['expression'] ?? null,
+            'timezone'    => $taskData['timezone'] ?? null,
+            'state'       => TaskState::RUNNING->value,
+            'started_at'  => now(),
+        ]);
+    }
+
+    /**
+     * 任务完成后更新 run 记录
+     */
+    private function finishRunRecord(
+        TaskScheduleRun $run,
+        int $exitCode,
+        float $duration,
+        ?string $output = null
+    ): void {
+        $state = $exitCode === 0 ? TaskState::SUCCESS : TaskState::FAILED;
+
+        $run->update([
+            'state'         => $state->value,
+            'exit_code'     => $exitCode,
+            'duration'      => $duration,
+            'output'        => $output !== null ? mb_substr($output, 0, 65535) : null,
+            'finished_at'   => now(),
+        ]);
+    }
+
+    /**
+     * 因重叠跳过时更新 run 记录
+     */
+    private function skipRunRecord(TaskScheduleRun $run, ?string $mutexName = null): void
+    {
+        $run->update([
+            'state'       => TaskState::SKIPPED->value,
+            'mutex_name'  => $mutexName,
+            'skipped_because_overlapping' => true,
+            'finished_at' => now(),
         ]);
     }
 
@@ -704,14 +747,29 @@ class SwowScheduler
     private function mainLoop(): void
     {
         $lastVersionCheck = 0;
+        $lastFullReload = 0;
+        $lastDump = 0;
 
         while ($this->running) {
+            $now = time();
+
+            // 调试用：每 10 秒 dump 一次时间轮快照
+            if ($now - $lastDump >= 10) {
+                $lastDump = $now;
+                $snap = $this->timingWheel->snapshot();
+                $slots = [];
+                foreach ($snap as $e) {
+                    $slots[] = sprintf('id=%d interval=%d nextFire=%d', $e->taskId, $e->intervalSeconds, $e->nextFireAt);
+                }
+                $this->logInfo('WHEEL DUMP: ' . implode(' | ', $slots));
+            }
+
             if (microtime(true) - $this->lastHeartbeat > 300) {
                 $this->logWarning("Heartbeat timeout detected");
                 $this->lastHeartbeat = microtime(true);
             }
 
-            $now = time();
+            // ① version 变化检测（秒级）
             if ($now - $lastVersionCheck >= 1) {
                 $lastVersionCheck = $now;
                 $current = $this->currentVersion();
@@ -720,6 +778,13 @@ class SwowScheduler
                     $this->knownVersion = $current;
                     $this->reloadSecondLevelTasks();
                 }
+            }
+
+            // ② 30 秒强制全量 reload（兜底，不依赖 version）
+            if ($now - $lastFullReload >= 30) {
+                $lastFullReload = $now;
+                $this->logInfo('Periodic full reload (30s)');
+                $this->reloadSecondLevelTasks();
             }
 
             usleep(100000);
@@ -731,8 +796,7 @@ class SwowScheduler
     private function currentVersion(): int
     {
         try {
-            $table = config('schedule.table', 'task_schedule');
-            return (int) (DB::table($table)->max('version') ?? 0);
+            return (int) (TaskSchedule::query()->max('version') ?? 0);
         } catch (\Throwable) {
             return $this->knownVersion;
         }

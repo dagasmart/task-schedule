@@ -155,19 +155,28 @@ class TaskScheduleService extends AdminService
 
         // Cron 表达式校验
         if (!empty($data['expression'])) {
-            if (!$this->validateCronExpression($data['expression'])) {
-                admin_abort('执行时间不是合法的 CRON 表达式');
+            $precision = $data['precision'] ?? null;
+            if (!$this->validateCronExpression($data['expression'], $precision)) {
+                admin_abort('执行时间不是合法的 Cron 表达式');
             }
         }
 
-        // 参数 JSON 化
+
+        // 参数处理（保留 explode 兜底）
         if (isset($data['parameters']) && !empty($data['parameters'])) {
             if (is_string($data['parameters'])) {
-                // 尝试解析为 JSON
-                json_decode($data['parameters']);
+                $decoded = json_decode($data['parameters'], true);
                 if (json_last_error() !== JSON_ERROR_NONE) {
                     // 不是 JSON，按空格分割成数组
-                    $data['parameters'] = explode(' ', trim($data['parameters']));
+                    $parts = explode(' ', trim($data['parameters']));
+                    $data['parameters'] = array_values(array_filter($parts, function ($v) {
+                        return $v !== '';
+                    }));
+                } else {
+                    if (!is_array($decoded)) {
+                        admin_abort('执行参数必须是 JSON 数组格式，如: ["--force", "--verbose"]');
+                    }
+                    $data['parameters'] = $decoded;
                 }
             }
         }
@@ -207,14 +216,15 @@ class TaskScheduleService extends AdminService
         // Worker 每秒比对 max(version)，发现变化即 reloadSecondLevelTasks()，
         // 新增/修改/删除任务无需重启 worker 即可生效。
         // 用 DB 直接更新避免再次触发模型事件造成递归。
-        try {
-            $model->getConnection()
-                ->table($model->getTable())
-                ->where('id', $model->getKey())
-                ->increment('version');
-        } catch (\Throwable $e) {
-            // 字段不存在或库不支持不影响主流程
-        }
+        // 如全局已实现version++，下面代码可注释掉，否则会出现 n+2 情况
+//        try {
+//            $model->getConnection()
+//                ->table($model->getTable())
+//                ->where('id', $model->getKey())
+//                ->increment('version');
+//        } catch (\Throwable $e) {
+//            // 字段不存在或库不支持不影响主流程
+//        }
     }
 
     /**
@@ -236,25 +246,28 @@ class TaskScheduleService extends AdminService
     /**
      * 验证 Cron 表达式（支持 5 字段和 6 字段）
      */
-    private function validateCronExpression(string $expression): bool
+    private function validateCronExpression(string $expression, $precision = null): bool
     {
-        $parts = explode(' ', trim($expression));
+        $parts = preg_split('/\s+/', trim($expression));
+        $partCount = count($parts);
 
-        // 5 字段标准格式
-        if (count($parts) === 5) {
+        if ($precision !== null) {
+            $expected = $precision == PrecisionLevel::SECOND->value ? 6 : 5;
+            if ($partCount !== $expected) {
+                admin_abort_if($precision === PrecisionLevel::SECOND->value, '必需是 6段(秒 分 时 日 月 周) Cron表达式');
+                admin_abort_if($precision !== PrecisionLevel::SECOND->value, '必需是 5段(分 时 日 月 周) Cron表达式');
+                return false;
+            }
+        }
+
+        if ($partCount === 5) {
             return CronExpression::isValidExpression($expression);
         }
 
-        // 6 字段格式（含秒）
-        if (count($parts) === 6) {
+        if ($partCount === 6) {
             $seconds = $parts[0];
             $cronPart = implode(' ', array_slice($parts, 1));
-
-            if (!$this->isValidSecondField($seconds)) {
-                return false;
-            }
-
-            return CronExpression::isValidExpression($cronPart);
+            return $this->isValidSecondField($seconds) && CronExpression::isValidExpression($cronPart);
         }
 
         return false;

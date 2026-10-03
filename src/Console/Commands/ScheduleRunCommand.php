@@ -30,9 +30,6 @@ class ScheduleRunCommand extends Command
         return $this->runDueTasks($force);
     }
 
-    /**
-     * 运行指定任务
-     */
     private function runSpecificTask(int $taskId, bool $sync): int
     {
         $task = TaskSchedule::query()->find($taskId);
@@ -49,16 +46,9 @@ class ScheduleRunCommand extends Command
 
         $this->info("Running task [{$taskId}]: {$task->task_name}");
 
-        if ($sync) {
-            return $this->runSync($task);
-        }
-
-        return $this->dispatchTask($task);
+        return $sync ? $this->runSync($task) : $this->dispatchTask($task);
     }
 
-    /**
-     * 运行到期的所有任务
-     */
     private function runDueTasks(bool $force): int
     {
         $query = TaskSchedule::query()->active();
@@ -84,11 +74,7 @@ class ScheduleRunCommand extends Command
 
         foreach ($tasks as $task) {
             $result = $this->dispatchTask($task);
-            if ($result === self::SUCCESS) {
-                $success++;
-            } else {
-                $failed++;
-            }
+            $result === self::SUCCESS ? $success++ : $failed++;
         }
 
         $this->info("Completed: {$success} succeeded, {$failed} failed");
@@ -96,22 +82,17 @@ class ScheduleRunCommand extends Command
     }
 
     /**
-     * 同步执行
+     * 同步执行 —— 只写 run 表
      */
     private function runSync(TaskSchedule $task): int
     {
-        $dispatchId = uniqid('disp_', true);
-
-        // 写 run 记录
         $run = TaskScheduleRun::create([
-            'task_id' => $task->id,
-            'task_name' => $task->task_name,
-            'command' => $task->command,
-            'description' => $task->description,
-            'dispatch_id' => $dispatchId,
-            'worker_id' => gethostname() . '_' . getmypid(),
-            'server_id' => gethostname(),
-            'state' => TaskState::RUNNING->value,
+            'task_id'    => $task->id,
+            'event_name' => $task->command ?? 'manual',   // 命令即事件名
+            'command'    => $task->command,
+            'expression' => $task->expression ?? null,
+            'timezone'   => $task->timezone ?? null,
+            'state'      => TaskState::RUNNING->value,
             'started_at' => now(),
         ]);
 
@@ -123,7 +104,9 @@ class ScheduleRunCommand extends Command
             $lockAcquired = Cache::lock($lockKey, $ttl)->get();
             if (!$lockAcquired) {
                 $run->update([
-                    'state' => TaskState::SKIPPED->value,
+                    'state'       => TaskState::SKIPPED->value,
+                    'mutex_name'  => "task_exec:{$task->id}",
+                    'skipped_because_overlapping' => true,
                     'finished_at' => now(),
                 ]);
                 $this->warn("Task [{$task->id}] skipped (overlap)");
@@ -134,10 +117,8 @@ class ScheduleRunCommand extends Command
         $startTime = microtime(true);
 
         try {
-            $command = trim($task->command ?? '');
-            $command = preg_replace('/^php\s+artisan\s+/i', '', $command);
+            $command = preg_replace('/^php\s+artisan\s+/i', '', trim($task->command ?? ''));
             $command = preg_replace('/^artisan\s+/i', '', $command);
-
             $fullCommand = sprintf('%s artisan %s', PHP_BINARY, $command);
 
             if ($task->max_runtime > 0) {
@@ -150,10 +131,11 @@ class ScheduleRunCommand extends Command
             $duration = round(microtime(true) - $startTime, 4);
             $state = $exitCode === 0 ? TaskState::SUCCESS : TaskState::FAILED;
 
+            // 只更新 run 表
             $run->update([
-                'state' => $state->value,
-                'exit_code' => $exitCode,
-                'duration' => $duration,
+                'state'       => $state->value,
+                'exit_code'   => $exitCode,
+                'duration'    => $duration,
                 'finished_at' => now(),
             ]);
 
@@ -164,15 +146,16 @@ class ScheduleRunCommand extends Command
 
             $this->info("Task [{$task->id}] finished: exit={$exitCode} duration={$duration}s");
             return $exitCode === 0 ? self::SUCCESS : self::FAILURE;
+
         } catch (\Throwable $e) {
             $duration = round(microtime(true) - $startTime, 4);
 
             $run->update([
-                'state' => TaskState::FAILED->value,
-                'exit_code' => 1,
-                'duration' => $duration,
-                'output' => ['error' => $e->getMessage()],
-                'finished_at' => now(),
+                'state'         => TaskState::FAILED->value,
+                'exit_code'     => 1,
+                'error_message' => $e->getMessage(),
+                'duration'      => $duration,
+                'finished_at'   => now(),
             ]);
 
             $this->error("Task [{$task->id}] failed: " . $e->getMessage());
@@ -185,41 +168,33 @@ class ScheduleRunCommand extends Command
     }
 
     /**
-     * 异步分发
+     * 异步分发 —— 只写 run 表
      */
     private function dispatchTask(TaskSchedule $task): int
     {
-        // 检查是否可执行
         if (!$this->canRunTask($task)) {
             $this->warn("Task [{$task->id}] cannot run now (overlap/skip)");
             return self::FAILURE;
         }
 
-        // 更新运行时间
         $task->update([
             'last_run_at' => now(),
             'next_run_at' => $task->calculateNextRun(),
         ]);
 
-        // 写 run 记录
-        $dispatchId = uniqid('disp_', true);
+        // 只写 run 表，字段严格对齐迁移定义
         TaskScheduleRun::create([
-            'task_id' => $task->id,
-            'task_name' => $task->task_name,
-            'command' => $task->command,
-            'description' => $task->description,
-            'dispatch_id' => $dispatchId,
-            'worker_id' => gethostname() . '_' . getmypid(),
-            'server_id' => gethostname(),
-            'state' => TaskState::RUNNING->value,
+            'task_id'    => $task->id,
+            'event_name' => $task->command ?? 'manual',
+            'command'    => $task->command,
+            'expression' => $task->expression ?? null,
+            'timezone'   => $task->timezone ?? null,
+            'state'      => TaskState::RUNNING->value,
             'started_at' => now(),
         ]);
 
-        // 后台执行
-        $command = trim($task->command ?? '');
-        $command = preg_replace('/^php\s+artisan\s+/i', '', $command);
+        $command = preg_replace('/^php\s+artisan\s+/i', '', trim($task->command ?? ''));
         $command = preg_replace('/^artisan\s+/i', '', $command);
-
         $fullCommand = sprintf('%s artisan %s > /dev/null 2>&1 &', PHP_BINARY, $command);
         exec($fullCommand);
 
@@ -227,23 +202,17 @@ class ScheduleRunCommand extends Command
         return self::SUCCESS;
     }
 
-    /**
-     * 检查任务是否可执行
-     */
     private function canRunTask(TaskSchedule $task): bool
     {
-        // 防重叠
         if ($task->without_overlapping) {
             $lockKey = "task_exec:{$task->id}";
             $ttl = ($task->overlap_release_minutes ?? 5) * 60;
             if (!Cache::lock($lockKey, $ttl)->get()) {
                 return false;
             }
-            // 立即释放（dispatchTask 只负责分发，不持有锁）
             Cache::lock($lockKey)->forceRelease();
         }
 
-        // 检查是否在维护模式
         if (app()->isDownForMaintenance() && !$task->run_in_maintenance) {
             return false;
         }

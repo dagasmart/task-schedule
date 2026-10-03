@@ -12,6 +12,7 @@ use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskStarting;
 
 use DagaSmart\BizAdmin\Extend\ServiceProvider;
+use DagaSmart\TaskSchedule\Models\TaskSchedule;
 use DagaSmart\TaskSchedule\Listeners\ScheduledTaskFailedListener;
 use DagaSmart\TaskSchedule\Listeners\ScheduledTaskFinishedListener;
 use DagaSmart\TaskSchedule\Listeners\ScheduledTaskStartingListener;
@@ -182,20 +183,20 @@ class TaskScheduleServiceProvider extends ServiceProvider
         $schedule->command('schedule:swow-run --workers=4 --max-concurrency=1024 --tick-ms=10')
             ->everyMinute()
             ->withoutOverlapping(120)
-            ->onOneServer()
+            ->onOneServer() // 依赖 Redis cache driver + 多服务器部署才有意义
             ->runInBackground();
 
-        // 2. 高精度秒级任务（不使用 Swow 时的备选方案）
-        $schedule->command('schedule:work --interval=1 --precision=1')
-            ->everyMinute()
-            ->withoutOverlapping(120)
-            ->runInBackground();
-
-        // 3. 分级任务
-        $schedule->command('schedule:work --interval=60 --precision=2')
-            ->everyMinute()
-            ->withoutOverlapping(120)
-            ->runInBackground();
+//        // 2. 高精度秒级任务（不使用 Swow 时的备选方案）
+//        $schedule->command('schedule:work --interval=1 --precision=1')
+//            ->everyMinute()
+//            ->withoutOverlapping(120)
+//            ->runInBackground();
+//
+//        // 3. 分级任务（不使用 Swow 时的备选方案）
+//        $schedule->command('schedule:work --interval=60 --precision=2')
+//            ->everyMinute()
+//            ->withoutOverlapping(120)
+//            ->runInBackground();
 
         // 4. 清理过期日志（每天凌晨执行）
         $schedule->command('schedule:cleanup --days=30 --optimize')
@@ -271,8 +272,7 @@ class TaskScheduleServiceProvider extends ServiceProvider
         });
 
         Validator::extend('task_name_unique', function ($attribute, $value, $parameters, $validator) {
-            $query = DB::table(config('schedule.table', 'task_schedule'))
-                ->where('task_name', $value);
+            $query = TaskSchedule::query()->where('task_name', $value);
 
             if (!empty($parameters[0])) {
                 $query->where('id', '!=', $parameters[0]);

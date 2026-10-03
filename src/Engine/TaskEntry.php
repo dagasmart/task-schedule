@@ -15,6 +15,14 @@ use DagaSmart\TaskSchedule\Enums\PrecisionLevel;
  *   秒级调度每秒要处理数千个条目，模型里 30 多个字段 + 一堆 accessor
  *   的序列化/反序列化开销在此场景下不可接受。这里只保留时间轮与执行器
  *   真正需要的字段，保持纯数组级轻量。
+ *
+ * 秒级精度（precision=1）下，expression 字段会被解析：
+ *   - *\/N * * * * *  → intervalSeconds = N（每 N 秒执行一次）
+ *   - N * * * * *     → intervalSeconds = -N（每分钟第 N 秒，负数标记固定秒位）
+ *   - 其他复杂格式    → 退化为使用 interval_seconds 字段的值
+ *
+ * 这样 `*\/5 * * * * *` 就能正确驱动 TimingWheel 每 5 秒触发一次，
+ * 而 `5 * * * * *` 则驱动 TimingWheel 每分钟第 5 秒触发一次。
  */
 final class TaskEntry
 {
@@ -77,18 +85,26 @@ final class TaskEntry
     }
 
     /**
-     * 从模型数组 hydrate。
-     * 这里的字段映射是调度器唯一允许的入口，方便日后模型字段改名时只改这一处。
+     * 从模型数组 hydrate。唯一入口，字段映射集中在此。
      */
     public static function fromArray(array $row): self
     {
         $precisionRaw = (int) ($row['precision'] ?? PrecisionLevel::MINUTE->value);
+        $precision = PrecisionLevel::tryFrom($precisionRaw) ?? PrecisionLevel::MINUTE;
+
+        $interval = (int) ($row['interval_seconds'] ?? 60);
+        if ($precision === PrecisionLevel::SECOND && !empty($row['expression'])) {
+            $exprInterval = self::extractSecondInterval((string) $row['expression']);
+            if ($exprInterval !== null) {
+                $interval = $exprInterval;
+            }
+        }
 
         return new self(
             (int) ($row['id'] ?? 0),
             (string) ($row['task_name'] ?? ''),
-            PrecisionLevel::tryFrom($precisionRaw) ?? PrecisionLevel::MINUTE,
-            (int) ($row['interval_seconds'] ?? 60),
+            $precision,
+            $interval,
             (string) ($row['command'] ?? ''),
             self::decodeParameters($row['parameters'] ?? null),
             (string) ($row['task_type'] ?? 'command'),
@@ -105,8 +121,41 @@ final class TaskEntry
     }
 
     /**
-     * 参数解码：兼容 jsonb 数组与字符串两种存储形态。
+     * 从 cron expression 秒字段提取执行语义：
+     *   - *       → 1（每 1 秒）
+     *   - *\/N     → N（每 N 秒）
+     *   - N       → -N（每分钟第 N 秒，负数标记固定秒位）
+     *   - 其他    → null（退化为 interval_seconds 字段）
      */
+    private static function extractSecondInterval(string $expression): ?int
+    {
+        $parts = preg_split('/\s+/', trim($expression));
+        if (count($parts) !== 6) {
+            return null;
+        }
+
+        $second = $parts[0];
+
+        if ($second === '*') {
+            return 1;
+        }
+
+        if (preg_match('/^\*\/(\d+)$/', $second, $matches)) {
+            $n = (int) $matches[1];
+            if ($n >= 1 && $n <= 60) {
+                return $n;
+            }
+            return null;
+        }
+
+        // 固定秒位（0-59）：负数标记，0 表示每分钟第 0 秒（即 :00）
+        if (ctype_digit($second) && (int) $second >= 0 && (int) $second <= 59) {
+            return -(int) $second; // 负数 = 固定秒位模式
+        }
+
+        return null;
+    }
+
     private static function decodeParameters(mixed $raw): array
     {
         if ($raw === null || $raw === '') {
@@ -128,9 +177,6 @@ final class TaskEntry
         return [];
     }
 
-    /**
-     * 转成执行器期望的数组形态（与既有 TaskExecutor::execute 签名对齐）。
-     */
     public function toPayload(): array
     {
         return [
