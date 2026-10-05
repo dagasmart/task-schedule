@@ -5,7 +5,8 @@ namespace DagaSmart\TaskSchedule\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Carbon\Carbon;
+use Carbon\CarbonInterface;
+use \Cron\CronExpression;
 
 /**
  * 任务调度模型
@@ -150,13 +151,16 @@ class TaskSchedule extends Model
     /**
      * 计算下次执行时间
      */
-    public function calculateNextRun(Carbon $from = null): ?Carbon
+    public function calculateNextRun(?CarbonInterface $from = null): ?CarbonInterface
     {
-        $from = $from ?? Carbon::now($this->timezone ?? config('app.timezone'));
+        $from = $from ?? CarbonImmutable::now($this->timezone ?? config('app.timezone'));
 
         try {
             $cron = \Cron\CronExpression::factory($this->expression);
-            return Carbon::parse($cron->getNextRunDate($from));
+
+            return CarbonImmutable::parse(
+                $cron->getNextRunDate($from)
+            );
         } catch (\Throwable $e) {
             return null;
         }

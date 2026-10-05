@@ -34,7 +34,7 @@ class TaskScheduleLogController extends AdminController
             ->headerToolbar([
                 amis()->ReloadAction()->label('刷新'),
                 amis()->AjaxAction()->label('清理日志')
-                    ->api('POST /admin/task-schedule/logs/cleanup')
+                    ->api('POST:task-schedule/log/cleanup')
                     ->confirmText('确定要清理30天前的日志吗？'),
             ])
             ->autoFillHeight(true)
@@ -61,5 +61,11 @@ class TaskScheduleLogController extends AdminController
             ]);
 
         return $this->baseList($crud);
+    }
+
+    public function cleanup()
+    {
+        $this->service->cleanup();
+        return $this->response()->success([],'清理完成');
     }
 }

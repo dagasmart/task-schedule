@@ -23,7 +23,7 @@ class TaskScheduleRun extends Model
         'command',
         'expression',
         'timezone',
-        'state',    // running / success / failed / skipped
+        'state',    // 1执行中 / 2成功 / 3失败 / 4跳过
         'exit_code',
         'output',
         'error_message',

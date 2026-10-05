@@ -29,9 +29,7 @@ class TaskScheduleLogService extends AdminService
      */
     public function getStatsByState(): array
     {
-        $table = config('schedule.log', 'task_schedule_log');
-
-        return DB::table($table)
+        return $this->getModel()->query()
             ->select('state', DB::raw('count(*) as count'))
             ->groupBy('state')
             ->get()
@@ -50,7 +48,7 @@ class TaskScheduleLogService extends AdminService
         $table = config('schedule.log', 'task_schedule_log');
         $since = now()->subHours($hours);
 
-        $results = DB::table($table)
+        $result = $this->getModel()->query()
             ->select(
                 DB::raw('EXTRACT(HOUR FROM created_at) as hour'),
                 DB::raw('count(*) as total'),
@@ -60,9 +58,10 @@ class TaskScheduleLogService extends AdminService
             ->where('created_at', '>=', $since)
             ->groupBy(DB::raw('EXTRACT(HOUR FROM created_at)'))
             ->orderBy('hour')
-            ->get();
+            ->get()
+            ->toArray();
 
-        return $results->toArray();
+        return $result;
     }
 
     /**
@@ -73,10 +72,15 @@ class TaskScheduleLogService extends AdminService
         $table = config('schedule.log', 'task_schedule_log');
 
         return [
-            'fast' => DB::table($table)->where('duration', '<', 1)->count(),      // < 1s
-            'medium' => DB::table($table)->whereBetween('duration', [1, 5])->count(), // 1-5s
-            'slow' => DB::table($table)->whereBetween('duration', [5, 30])->count(),  // 5-30s
-            'very_slow' => DB::table($table)->where('duration', '>', 30)->count(),    // > 30s
+            'fast' => $this->getModel()->query()->where('duration', '<', 1)->count(),      // < 1s
+            'medium' => $this->getModel()->query()->whereBetween('duration', [1, 5])->count(), // 1-5s
+            'slow' => $this->getModel()->query()->whereBetween('duration', [5, 30])->count(),  // 5-30s
+            'very_slow' => $this->getModel()->query()->where('duration', '>', 30)->count(),    // > 30s
         ];
+    }
+
+    public function cleanup()
+    {
+        return $this->getModel()->query()->delete();
     }
 }

@@ -96,19 +96,71 @@ class TaskScheduleController extends AdminController
                         ->level('link')->className('text-success')
                         ->actionType('drawer')
                         ->drawer(
-                            amis()->Drawer()->title('下次执行时间预览')
+                            amis()->Drawer()
+                                ->title('任务预览【<b class="text-danger">${task_name}</b>】')
+                                ->closeOnEsc()
+                                ->closeOnOutside()
+                                ->data(['id' => '${id}', 'task_name' => '${task_name}'])
                                 ->body(
                                     amis()->Service()->api(admin_url('task-schedule/${id}/preview'))
+                                        ->interval(30000)
+                                        ->silentPolling()
                                         ->body([
-                                            amis()->Table()->columns([
-                                                amis()->TableColumn('run_time', '执行时间')->type('datetime'),
+                                            amis()->Tabs()->tabsMode('strong')->tabs([
+                                                amis()->Tab()->title('下次执行时间节点')->body([
+                                                    amis()->Table()
+                                                        ->source('${next_runs}')
+                                                        ->columns([
+                                                            amis()->TableColumn('id', 'ID'),
+                                                            amis()->TableColumn('run_time', '执行时间')->type('datetime'),
+                                                        ]),
+                                                ]),
+                                                amis()->Tab()->title('最后10次执行概况')->body([
+                                                    amis()->Table()
+                                                        ->source('${last_runs}')
+                                                        ->columns([
+                                                            amis()->TableColumn('id', 'ID'),
+                                                            amis()->TableColumn('started_at', '开始时间')->type('datetime'),
+                                                            amis()->TableColumn('finished_at', '结束时间')->type('datetime'),
+                                                            amis()->TableColumn('duration', '耗时')
+                                                                ->set('type', 'tpl')
+                                                                ->set('tpl', '${duration}s'),
+                                                            amis()->TableColumn('state', '状态')
+                                                                ->set('type', 'mapping')
+                                                                ->set('map', [
+                                                                    '1' => ['label' => '⭕'],
+                                                                    '2' => ['label' => '✅'],
+                                                                    '3' => ['label' => '❌'],
+                                                                ])
+                                                        ]),
+                                                ]),
+                                                amis()->Tab()->title('运行分析')->body([
+                                                    amis()->Grid()->columns([
+                                                        amis()->Grid()->columns([
+                                                            // ✅ 饼图：source 指向 pie_data
+                                                            $this->pieChart('执行结果分布')
+                                                                //->source('pie_data')
+                                                                ->set('md', 12),
+                                                            amis()->Divider(),
+                                                            // ✅ 柱图：source 指向 bar_data
+                                                            $this->barChart('每日执行趋势')
+                                                                //->source('bar_data')
+                                                                ->set('md', 12),
+                                                            amis()->Divider(),
+                                                            // ✅ 折线图：source 指向 trend_runs
+                                                            $this->lineChart('每月运行趋势')
+                                                                //->source('trend_runs')
+                                                                ->set('md', 12),
+                                                        ]),
+                                                    ]),
+                                                ]),
                                             ])
                                         ])
                                 )
                         ),
                     // 日志
                     amis()->LinkAction()->label('日志')
-                        ->level('link')->className('text-dark')
+                        ->level('link')->className('text-current')
                         ->linkTo(admin_url('task-schedule-logs?task_id=${id}')),
                 ])->set('width', 150)->fixed('right')
             ]);
@@ -317,12 +369,11 @@ class TaskScheduleController extends AdminController
     /**
      * 预览下次执行时间
      */
-    public function preview(Request $request): JsonResponse
+    public function preview($id = null)
     {
-        $request->validate(['id' => 'required|integer']);
+        admin_abort_if(!is_numeric($id), 'id不存在');
 
-        $runs = $this->service->previewNextRuns($request->id, 10);
-        return $this->response()->success($runs);
+        return $this->service->previewRuns((int) $id, 10);
     }
 
     /**
@@ -381,4 +432,309 @@ class TaskScheduleController extends AdminController
 
         return $this->response()->successMessage("已删除 {$deleted} 条记录");
     }
+
+    /**
+     * 执行结果分布 - 饼图
+     */
+    protected function pieChart(string $title = null)
+    {
+        $palette = app('theme')->echartsPalette();
+        return amis()->Chart()
+            ->height(280)
+            ->config([
+                'color' => $palette,
+                'backgroundColor' => 'transparent',
+                'title' => [
+                    'text' => $title,
+                    'left' => 'left',
+                    'textStyle' => ['fontSize' => 14, 'color' => $palette[0]],
+                ],
+                'tooltip' => [
+                    'trigger' => 'item',
+                    'formatter' => '{b}<br/>数量: {c} ({d}%)',
+                ],
+                'legend' => [
+                    'orient' => 'horizontal',
+                    'bottom' => 0,
+                    'textStyle' => ['color' => '#666', 'fontSize' => 12],
+                ],
+                'series' => [[
+                    'name' => $title,
+                    'type' => 'pie',
+                    'radius' => ['35%', '60%'],
+                    'center' => ['50%', '45%'],
+                    'avoidLabelOverlap' => true,
+                    'itemStyle' => [
+                        'borderRadius' => 6,
+                        'borderColor' => '#fff',
+                        'borderWidth' => 2,
+                    ],
+                    // ✅ 关键：直接从 response 根级取 pie_data
+                    'data' => '${pie_data}',
+                    'label' => [
+                        'show' => true,
+                        'formatter' => '{b} {c} ({d}%)',
+                        'fontSize' => 11,
+                        // 让文字颜色继承扇区颜色；如果想固定灰色就保留 '#666'
+                        'color' => 'inherit',
+                    ],
+                    'avoidLabelOverlap' => true,
+                    'showLabel' => true,
+                    'legend' => true,
+                    'borderRadius' => 8,
+                    'shadow' => [
+                        'enabled' => true,
+                        'color' => 'rgba(0,0,0,0.4)',
+                        'blur' => 8,
+                        'offsetX' => 2,
+                        'offsetY' => 4,
+                    ],
+                    'padAngle' => 3, // 扇形间隔
+                    'borderWidth' => 3,
+                    'borderColor' => '#0002',
+                    'labelShadow' => [
+                        'enabled' => true,
+                        'color' => 'rgba(0,0,0,0.3)',
+                        'blur' => 6,
+                        'offsetX' => 2,
+                        'offsetY' => 2,
+                    ],
+                    'labelLine' => [
+                        'show' => true,
+                        'smooth' => true,
+                        'length' => 15,
+                        'length2' => 10,
+                        'lineStyle' => [
+                            'width' => 1,
+                            'shadow' => [
+                                'enabled' => true,
+                                'color' => 'rgba(0,0,0,0.5)',
+                                'blur' => 3,
+                                'offsetX' => 1,
+                                'offsetY' => 1,
+                            ],
+                        ],
+                    ],
+                    'itemStyle' => ['borderRadius' => 10, 'borderColor' => '#0003', 'borderWidth' => 2],
+                ]],
+            ]);
+    }
+
+    /**
+     * 每日执行趋势 - 柱状图
+     */
+    protected function barChart(string $title = null)
+    {
+        $palette = app('theme')->echartsPalette();
+        return amis()->Chart()
+            ->height(280)
+            ->config([
+                'color' => $palette,
+                'backgroundColor' => 'transparent',
+                'title' => [
+                    'text' => $title, // 可传“最近7日执行趋势”
+                    'textStyle' => ['fontSize' => 14, 'color' => $palette[0]],
+                    'subtext' => '近7天执行情况分析', // 副标题，按需改，比如统计周期/月份趋势
+                    'subtextStyle' => [
+                        'color' => '#999',
+                        'fontSize' => 12,
+                        'padding' => [4, 0, 0, 0],
+                    ],
+                ],
+                'tooltip' => ['trigger' => 'axis'],
+                'legend' => [
+                    'data' => ['成功', '失败'],
+                    'textStyle' => ['color' => '#666', 'fontSize' => 11],
+                    'top' => 25,
+                ],
+                'grid' => ['left' => 50, 'right' => 20, 'top' => 60, 'bottom' => 30],
+                'xAxis' => [
+                    'type' => 'category',
+                    'boundaryGap' => true,
+                    // ✅ 根级字段 daily_dates，如 ["09-29","09-30","10-01",...]
+                    'data' => '${daily_dates}',
+                    'axisLabel' => ['fontSize' => 10],
+                ],
+                'yAxis' => [
+                    'type' => 'value',
+                    'min' => 0,
+                    'minInterval' => 1,
+                    'splitLine' => [
+                        'lineStyle' => ['color' => '#0002', 'type' => 'dashed', 'width' => 0.5],
+                    ],
+                ],
+                'series' => [
+                    [
+                        'name' => '成功',
+                        'type' => 'bar',
+                        'smooth' => true,
+                        // ✅ 根级字段 daily_success
+                        'data' => '${daily_success}',
+                        'lineStyle' => ['width' => 2],
+                        'symbol' => 'circle',
+                        'symbolSize' => 6,
+                        'itemStyle'  => [
+                            'borderRadius' => [4, 4, 0, 0],
+                            'color' => [
+                                'type' => 'linear',
+                                'x' => 0, 'y' => 0, 'x2' => 0, 'y2' => 1,
+                                'colorStops' => [
+                                    ['offset' => 0, 'color' => $palette[0]],
+                                    ['offset' => 1, 'color' => app('theme')->darkColor($palette[0], 0.3)],
+                                ],
+                            ],
+                            'shadowColor'   => '#0005',
+                            'shadowBlur'    => 4,
+                            'shadowOffsetX' => 2,
+                            'shadowOffsetY' => 2,
+                        ],
+                    ],
+                    [
+                        'name' => '失败',
+                        'type' => 'bar',
+                        'smooth' => true,
+                        // ✅ 根级字段 daily_failed
+                        'data' => '${daily_failed}',
+                        'lineStyle' => ['width' => 2],
+                        'symbol' => 'circle',
+                        'symbolSize' => 6,
+                        'itemStyle'  => [
+                            'borderRadius' => [4, 4, 0, 0],
+                            'color' => [
+                                'type' => 'linear',
+                                'x' => 0, 'y' => 0, 'x2' => 0, 'y2' => 1,
+                                'colorStops' => [
+                                    ['offset' => 0, 'color' => $palette[1]],
+                                    ['offset' => 1, 'color' => app('theme')->darkColor($palette[1], 0.3)],
+                                ],
+                            ],
+                            'shadowColor'   => '#0005',
+                            'shadowBlur'    => 4,
+                            'shadowOffsetX' => 2,
+                            'shadowOffsetY' => 2,
+                        ],
+                    ],
+                ],
+            ]);
+    }
+
+    /**
+     * 每月运行趋势 - 折线图
+     */
+    protected function lineChart(string $title = null)
+    {
+        $palette = app('theme')->echartsPalette();
+        return amis()->Chart()
+            ->height(250)
+            ->config([
+                'color' => $palette,
+                'backgroundColor' => 'transparent',
+                'title' => [
+                    'text' => $title,
+                    'textStyle' => ['fontSize' => 14, 'color' => $palette[0]],
+                    'subtext' => '近7天执行情况分析', // 副标题，按需改，比如统计周期/月份趋势
+                    'subtextStyle' => [
+                        'color' => '#999',
+                        'fontSize' => 12,
+                        'padding' => [4, 0, 0, 0],
+                    ],
+                ],
+                'tooltip' => ['trigger' => 'axis'],
+                'legend' => [
+                    'data' => ['成功', '失败'],
+                    'textStyle' => ['color' => '#666', 'fontSize' => 11],
+                    'top' => 25,
+                ],
+                'grid' => ['left' => 50, 'right' => 20, 'top' => 60, 'bottom' => 35],
+                'xAxis' => [
+                    'type' => 'category',
+                    'boundaryGap' => false,
+                    // ✅ 从根级取 trend_months
+                    'data' => '${trend_months}',
+                    'axisLabel' => ['fontSize' => 10, 'rotate' => 30],
+                ],
+                'yAxis' => [
+                    'type' => 'value',
+                    'min' => 0,
+                    'minInterval' => 1,
+                    'splitLine' => [
+                        'lineStyle' => ['color' => '#0002', 'type' => 'dashed', 'width' => 0.5],
+                    ],
+                ],
+                'series' => [
+                    [
+                        'name' => '成功',
+                        'type' => 'line',
+                        'smooth' => true,
+                        'data' => '${trend_success}',
+                        'symbol' => 'circle',
+                        'symbolSize' => 4,
+                        // ✅ 显式声明 lineStyle
+                        'lineStyle' => [
+                            'width' => 2,
+                            'color' => $palette[0],
+                            'opacity' => 1,
+                            'type' => 'solid',
+                            'shadowColor' => '#0005',
+                            'shadowBlur'  => 4,
+                            'shadowOffsetX' => 0,
+                            'shadowOffsetY' => 4,
+                        ],
+                        // ✅ null 值也连线（防止断线）
+                        'connectNulls' => true,
+                        'itemStyle' => [
+                            'color' => '#fff',
+                            'borderColor' => $palette[0],
+                            'borderWidth' => 1,
+                        ],
+                        'areaStyle' => [
+                            'color' => [
+                                'type' => 'linear',
+                                'x' => 0, 'y' => 0, 'x2' => 0, 'y2' => 1,
+                                'colorStops' => [
+                                    ['offset' => 0, 'color' => $palette[0]],
+                                    ['offset' => 1, 'color' => 'transparent'],
+                                ],
+                            ],
+                        ],
+                    ],
+                    [
+                        'name' => '失败',
+                        'type' => 'line',
+                        'smooth' => true,
+                        'data' => '${trend_failed}',
+                        'symbol' => 'circle',
+                        'symbolSize' => 4,
+                        'lineStyle' => [
+                            'width' => 2,
+                            'color' => $palette[1],
+                            'opacity' => 1,
+                            'type' => 'solid',
+                            'shadowColor' => '#0005',
+                            'shadowBlur'  => 4,
+                            'shadowOffsetX' => 0,
+                            'shadowOffsetY' => 4,
+                        ],
+                        'connectNulls' => true,
+                        'itemStyle' => [
+                            'color' => '#fff',
+                            'borderColor' => $palette[1],
+                            'borderWidth' => 1,
+                        ],
+                        'areaStyle' => [
+                            'color' => [
+                                'type' => 'linear',
+                                'x' => 0, 'y' => 0, 'x2' => 0, 'y2' => 1,
+                                'colorStops' => [
+                                    ['offset' => 0, 'color' => $palette[1]],
+                                    ['offset' => 1, 'color' => 'transparent'],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ]);
+    }
+
+
 }

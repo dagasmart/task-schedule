@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace DagaSmart\TaskSchedule\Services;
 
+use Carbon\Carbon;
 use Cron\CronExpression;
 use DagaSmart\BizAdmin\Admin;
 use Illuminate\Support\Facades\Artisan;
@@ -11,6 +12,8 @@ use Illuminate\Database\Eloquent\Builder;
 use DagaSmart\TaskSchedule\Models\TaskSchedule;
 use DagaSmart\TaskSchedule\Enums\PrecisionLevel;
 use DagaSmart\TaskSchedule\Enums\TaskState;
+use DagaSmart\TaskSchedule\Models\TaskScheduleRun;
+use DagaSmart\TaskSchedule\Models\TaskScheduleDispatch;
 
 /**
  * 任务调度服务类
@@ -77,8 +80,17 @@ class TaskScheduleService extends AdminService
      */
     public function getGroups(): array
     {
-        $data = $this->getModel()->getGroups()->toArray();
-        return array2tree($data);
+        if (!method_exists($this->getModel(), 'getGroups')) {
+            return [];
+        }
+
+        $data = $this->getModel()->getGroups();
+
+        if (!$data instanceof \Illuminate\Support\Collection) {
+            return [];
+        }
+
+        return array2tree($data->toArray());
     }
 
     /**
@@ -161,13 +173,11 @@ class TaskScheduleService extends AdminService
             }
         }
 
-
         // 参数处理（保留 explode 兜底）
         if (isset($data['parameters']) && !empty($data['parameters'])) {
             if (is_string($data['parameters'])) {
                 $decoded = json_decode($data['parameters'], true);
                 if (json_last_error() !== JSON_ERROR_NONE) {
-                    // 不是 JSON，按空格分割成数组
                     $parts = explode(' ', trim($data['parameters']));
                     $data['parameters'] = array_values(array_filter($parts, function ($v) {
                         return $v !== '';
@@ -192,14 +202,37 @@ class TaskScheduleService extends AdminService
             $data['creator'] = $admin->name;
         }
 
-        // 计算下次执行时间
+        // ★★★ 计算下次执行时间 — 修复秒级精度 ★★★
         if (!empty($data['expression']) && !empty($data['active'])) {
-            $task = $this->getModel();
-            foreach ($data as $key => $value) {
-                $task->setAttribute($key, $value);
+            $precision = $data['precision'] ?? null;
+
+            if ($precision == PrecisionLevel::SECOND->value) {
+                // ✅ 秒级：从 expression 提取间隔，算 next_run_at
+                $interval = $this->parseIntervalFromExpression($data['expression']);
+
+                if ($interval > 0) {
+                    // 自动回填 interval_seconds
+                    $data['interval_seconds'] = $interval;
+
+                    // 对齐到下一个 interval 边界
+                    $now = Carbon::now();
+                    $timestamp = $now->timestamp;
+                    $nextTimestamp = ceil($timestamp / $interval) * $interval;
+                    $data['next_run_at'] = Carbon::createFromTimestamp($nextTimestamp);
+                } else {
+                    // fallback
+                    $data['next_run_at'] = Carbon::now()->addSecond();
+                    $data['interval_seconds'] = 1;
+                }
+            } else {
+                // ✅ 非秒级：走原有 CronExpression 逻辑
+                $task = $this->getModel();
+                foreach ($data as $key => $value) {
+                    $task->setAttribute($key, $value);
+                }
+                $nextRun = $task->calculateNextRun();
+                $data['next_run_at'] = $nextRun;
             }
-            $nextRun = $task->calculateNextRun();
-            $data['next_run_at'] = $nextRun;
         }
     }
 
@@ -212,35 +245,95 @@ class TaskScheduleService extends AdminService
         $cacheKey = "task_schedule:{$model->id}";
         cache()->forget($cacheKey);
 
-        // 自增版本号，触发 Swow Worker 的时间轮热重载。
-        // Worker 每秒比对 max(version)，发现变化即 reloadSecondLevelTasks()，
-        // 新增/修改/删除任务无需重启 worker 即可生效。
-        // 用 DB 直接更新避免再次触发模型事件造成递归。
-        // 如全局已实现version++，下面代码可注释掉，否则会出现 n+2 情况
-//        try {
-//            $model->getConnection()
-//                ->table($model->getTable())
-//                ->where('id', $model->getKey())
-//                ->increment('version');
-//        } catch (\Throwable $e) {
-//            // 字段不存在或库不支持不影响主流程
-//        }
+        // ✅ FIX: 同时清除预览缓存，避免旧数据残留
+        cache()->forget("task_preview_{$model->id}_5");
+        cache()->forget("task_preview_{$model->id}_10");
     }
 
     /**
      * 删除前处理
      */
-    public function deleting($model): void
+    public function deleting($ids)
     {
-        // 检查是否有正在执行的任务
-        $runningCount = DB::table('task_schedule_log')
-            ->where('task_id', $model->id)
+        admin_abort_if(empty($ids), "任务id不能为空");
+
+        if (!is_array($ids)) {
+            $ids = implode(',', $ids);
+        }
+
+        $runningCount = TaskScheduleRun::query()
+            ->whereIn('task_id', $ids)
             ->where('state', TaskState::RUNNING->value)
+            ->where('created_at', '>', now()->subHours(24))
+            ->whereNull('finished_at')  // 没结束的才是真正在跑
             ->count();
 
         if ($runningCount > 0) {
-            admin_abort("该任务有 {$runningCount} 个正在执行的实例，无法删除");
+            admin_abort("该任务有 {$runningCount} 个正在执行的实例（24小时内启动且未完成），无法删除");
         }
+
+        // 清理关联数据（防止外键报错）
+        TaskScheduleRun::query()
+            ->whereIn('task_id', $ids)
+            ->delete();
+
+        TaskScheduleDispatch::query()
+            ->whereIn('task_id', $ids)
+            ->delete();
+
+        return $ids;  // ← 必须返回 $ids，框架后面要用
+    }
+
+    /**
+     * ★★★ 从 expression 提取秒级间隔 ★★★
+     */
+    private function parseIntervalFromExpression(?string $expression): int
+    {
+        if (empty($expression)) {
+            return 0;
+        }
+
+        $parts = preg_split('/\s+/', trim($expression));
+
+        if (count($parts) === 6) {
+            $secondField = $parts[0];
+
+            // ✅ * = 每秒
+            if ($secondField === '*') {
+                return 1;
+            }
+
+            // */N
+            if (preg_match('/^\*\/(\d+)$/', $secondField, $m)) {
+                return (int) $m[1];
+            }
+
+            // 固定秒数
+            if (is_numeric($secondField) && (int)$secondField >= 0 && (int)$secondField <= 59) {
+                return 60;
+            }
+
+            // 范围
+            if (preg_match('/^(\d+)-(\d+)$/', $secondField, $m)) {
+                return 1;
+            }
+
+            // 逗号列表
+            if (str_contains($secondField, ',')) {
+                $values = array_filter(explode(',', $secondField), 'is_numeric');
+                sort($values);
+                $minDiff = 60;
+                for ($i = 1; $i < count($values); $i++) {
+                    $diff = (int)$values[$i] - (int)$values[$i - 1];
+                    if ($diff > 0 && $diff < $minDiff) {
+                        $minDiff = $diff;
+                    }
+                }
+                return $minDiff < 60 ? $minDiff : 60;
+            }
+        }
+
+        return 0;
     }
 
     /**
@@ -254,9 +347,10 @@ class TaskScheduleService extends AdminService
         if ($precision !== null) {
             $expected = $precision == PrecisionLevel::SECOND->value ? 6 : 5;
             if ($partCount !== $expected) {
-                admin_abort_if($precision === PrecisionLevel::SECOND->value, '必需是 6段(秒 分 时 日 月 周) Cron表达式');
-                admin_abort_if($precision !== PrecisionLevel::SECOND->value, '必需是 5段(分 时 日 月 周) Cron表达式');
-                return false;
+                $msg = $precision === PrecisionLevel::SECOND->value
+                    ? '必需是 6段(秒 分 时 日 月 周) Cron表达式'
+                    : '必需是 5段(分 时 日 月 周) Cron表达式';
+                admin_abort($msg);
             }
         }
 
@@ -491,7 +585,7 @@ class TaskScheduleService extends AdminService
      */
     private function getCountByPrecision(): array
     {
-        return DB::table(config('schedule.table', 'task_schedule'))
+        return TaskSchedule::query()
             ->select('precision', DB::raw('count(*) as count'))
             ->groupBy('precision')
             ->pluck('count', 'precision')
@@ -503,7 +597,7 @@ class TaskScheduleService extends AdminService
      */
     private function getCountByGroup(): array
     {
-        return DB::table(config('schedule.table', 'task_schedule'))
+        return TaskSchedule::query()
             ->select('group_id', DB::raw('count(*) as count'))
             ->groupBy('group_id')
             ->pluck('count', 'group_id')
@@ -515,7 +609,7 @@ class TaskScheduleService extends AdminService
      */
     private function getRecentFailures(): array
     {
-        return DB::table(config('schedule.log', 'task_schedule_log'))
+        return TaskScheduleRun::query()
             ->where('state', TaskState::FAILED->value)
             ->orderBy('created_at', 'desc')
             ->limit(10)
@@ -526,24 +620,326 @@ class TaskScheduleService extends AdminService
     /**
      * 预览下次执行时间
      */
-    public function previewNextRuns(int $id, int $count = 5): array
+    public function previewRuns(int $id, int $count = 5): array
+    {
+        // ✅ FIX: 加缓存，防止 silentPolling 5~6秒轮询打爆 PG 连接池
+        $cacheKey = "task_preview_{$id}_{$count}";
+        $cacheTtl = 30; // 30秒缓存
+
+        return cache()->remember($cacheKey, $cacheTtl, function () use ($id, $count) {
+            return $this->buildPreviewData($id, $count);
+        });
+    }
+
+    /**
+     * 构建预览数据（内部分离，便于缓存）
+     */
+    private function buildPreviewData(int $id, int $count): array
     {
         $task = $this->getModel()->find($id);
         if (!$task) {
-            return [];
+            return ['next_runs' => [], 'last_runs' => [], 'pie_data' => [], 'bar_categories' => [], 'bar_data' => [], 'trend_runs' => [], 'trend_months' => [], 'trend_success' => [], 'trend_failed' => []];
         }
 
-        $runs = [];
-        $current = now();
+        // ===== next_runs =====
+        $next_runs = [];
+        $interval = $this->parseIntervalFromExpression($task->expression);
 
-        for ($i = 0; $i < $count; $i++) {
-            $next = $task->calculateNextRun($current);
-            if ($next) {
-                $runs[] = $next->toIso8601String();
+        if ($interval > 0) {
+            $timestamp = Carbon::now()->timestamp;
+            $nextTimestamp = ceil($timestamp / $interval) * $interval;
+            $next = now()->setTimestamp($nextTimestamp);
+
+            for ($i = 0; $i < $count; $i++) {
+                $next_runs[] = [
+                    'id'       => $i + 1,
+                    'run_time' => $next->toDateTimeString(),
+                ];
+                $next = $next->copy()->addSeconds($interval);
+            }
+        } else {
+            $current = Carbon::now()->toMutable();
+            $maxAttempts = $count * 3;
+            $attempts = 0;
+
+            while (count($next_runs) < $count && $attempts < $maxAttempts) {
+                $attempts++;
+                $next = $task->calculateNextRun($current);
+                if (!$next) {
+                    break;
+                }
+
+                $next_runs[] = [
+                    'id'       => count($next_runs) + 1,
+                    'run_time' => $next->toDateTimeString(),
+                ];
                 $current = $next;
             }
         }
 
-        return $runs;
+        // ===== last_runs =====
+        $last_runs = TaskScheduleRun::query()
+            ->select('id', 'started_at', 'finished_at', 'duration', 'state')
+            ->where('task_id', $id)
+            ->orderBy('created_at', 'desc')
+            ->limit($count)
+            ->get()
+            ->toArray();
+
+        // ✅ FIX: state 转 string，让 amis mapping/statusMap 能正确匹配（int 2 ≠ string '2'）
+        foreach ($last_runs as &$run) {
+            $run['state'] = (string)$run['state'];
+        }
+        unset($run);
+
+        // ===== stat_runs：按状态聚合 =====
+        $stateMap = [1 => '待执行', 2 => '成功', 3 => '失败'];
+
+        // ✅ FIX: CASE WHEN 加 ELSE 0，PG 里 SUM(NULL) 会返回 NULL
+        $statRows = TaskScheduleRun::query()
+            ->select(
+                'state',
+                DB::raw('COUNT(*) as count'),
+                DB::raw("SUM(CASE WHEN created_at > CURRENT_TIMESTAMP - INTERVAL '7 day' THEN 1 ELSE 0 END) AS recent_7d_count"),
+                DB::raw("SUM(CASE WHEN created_at > CURRENT_TIMESTAMP - INTERVAL '1 month' THEN 1 ELSE 0 END) AS recent_1m_count"),
+                DB::raw("SUM(CASE WHEN created_at > CURRENT_TIMESTAMP - INTERVAL '1 year' THEN 1 ELSE 0 END) AS recent_1y_count"),
+            )
+            ->where('task_id', $id)
+            ->whereIn('state', [TaskState::SUCCESS->value, TaskState::FAILED->value])
+            ->groupBy('state')
+            ->orderBy('state')
+            ->get()
+            ->map(function ($row) use ($stateMap) {
+                $state = $row->state;
+                $countVal = (int) $row->count;
+                $recent7d = (int) ($row->recent_7d_count ?? 0);
+                $recent1m = (int) ($row->recent_1m_count ?? 0);
+                $recent1y = (int) ($row->recent_1y_count ?? 0);
+
+                return [
+                    'state'              => (string)$state, // ✅ FIX: 也转成 string
+                    'state_label'        => $stateMap[$state] ?? '未知',
+                    'count'              => $countVal,
+                    'recent_7d_count'   => $recent7d,
+                    'recent_1m_count'   => $recent1m,
+                    'recent_1y_count'   => $recent1y,
+                ];
+            })
+            ->values()
+            ->toArray();
+
+        // 过滤掉 count=0 的项
+        $pieItems = array_values(array_filter($statRows, fn($r) => $r['count'] > 0));
+        $barItems = array_values(array_filter($statRows, fn($r) => $r['count'] > 0));
+
+        // 最近7日趋势（已缓存）
+        $daily_runs = $this->getRecent7DaysTrend($id);
+
+        // ===== trend_runs：月度趋势（已缓存）=====
+        $trend_runs = $this->getMonthlyTrend($id);
+
+        // ===== 最终返回（格式化图表数据，前端零转换） =====
+        return [
+            'next_runs' => $next_runs,
+            'last_runs' => $last_runs,
+
+            // ✅ 饼图：直接格式化为 ECharts pie series data
+            'pie_data' => array_map(function ($item) {
+                return [
+                    'name'  => $item['state_label'],
+                    'value' => $item['count'],
+                ];
+            }, $pieItems),
+
+            // ✅ 柱图：categories + data 分离到根级
+            'bar_categories' => array_values(array_map(fn($item) => $item['state_label'], $barItems)),
+            'bar_data'       => array_values(array_map(fn($item) => $item['count'], $barItems)),
+
+            // ✅ 最近7日趋势, 柱形图
+            'daily_runs' => $daily_runs,
+            // ✅ amis 图表直接读根级字段，避免模板复杂处理
+            'daily_dates'   => $daily_runs['dates'],
+            'daily_success' => $daily_runs['success'],
+            'daily_failed'  => $daily_runs['failed'],
+
+            // ✅ 最近12月趋势, 折线图
+            'trend_runs'     => $trend_runs,
+            // ✅ 折线图：根级平铺字段
+            'trend_months'   => $trend_runs['months'],
+            'trend_success'  => $trend_runs['success'],
+            'trend_failed'   => $trend_runs['failed'],
+        ];
+    }
+
+    /**
+     * 获取最近7日成功/失败趋势（PostgreSQL / MySQL 兼容）
+     * ✅ FIX: 加缓存，防止轮询时重复查询
+     *
+     * 返回：
+     * [
+     *   'dates'   => ['10-29', '10-30', ..., '11-04'],
+     *   'success' => [0,0,...],
+     *   'failed'  => [0,0,...],
+     * ]
+     */
+    private function getRecent7DaysTrend(int $taskId): array
+    {
+        $cacheKey = "task_trend_7d_{$taskId}";
+        $cacheTtl = 60; // 60秒缓存
+
+        return cache()->remember($cacheKey, $cacheTtl, function () use ($taskId) {
+            return $this->build7DaysTrend($taskId);
+        });
+    }
+
+    /**
+     * 构建7日趋势数据
+     */
+    private function build7DaysTrend(int $taskId): array
+    {
+        $dates   = [];
+        $keys    = []; // Y-m-d，用于数据库结果精确匹配
+        $success = [];
+        $failed  = [];
+
+        $now = now();
+
+        // ✅ 生成最近7天：今天往前推6天 ~ 今天
+        for ($i = 6; $i >= 0; $i--) {
+            $date = $now->copy()->subDays($i);
+
+            $keys[]  = $date->format('Y-m-d');
+            // 显示用：m-d，如 10-29；跨月自然能区分
+            $dates[] = $date->format('m-d');
+
+            $success[] = 0;
+            $failed[]  = 0;
+        }
+
+        // ✅ 数据库方言适配：按日期分组
+        $dateFormat = DB::getDriverName() === 'pgsql'
+            ? "TO_CHAR(created_at, 'YYYY-MM-DD')"
+            : "DATE_FORMAT(created_at, '%Y-%m-%d')";
+
+        $rows = TaskScheduleRun::query()
+            ->selectRaw("{$dateFormat} as day")
+            ->selectRaw('state')
+            ->selectRaw('COUNT(*) as cnt')
+            ->where('task_id', $taskId)
+            // ✅ 最近7日：从 6天前 00:00:00 开始，到今天结束
+            ->where('created_at', '>=', $now->copy()->subDays(6)->startOfDay())
+            ->where('created_at', '<=', $now->copy()->endOfDay())
+            ->groupBy(DB::raw($dateFormat), 'state')
+            ->orderBy(DB::raw($dateFormat))
+            ->get();
+
+        foreach ($rows as $row) {
+            // ✅ 用 Y-m-d 精确匹配，避免任何格式/跨月歧义
+            $idx = array_search($row->day, $keys, true);
+
+            if ($idx !== false) {
+                if ($row->state == TaskState::SUCCESS->value) {
+                    $success[$idx] = (int) $row->cnt;
+                } elseif ($row->state == TaskState::FAILED->value) {
+                    $failed[$idx] = (int) $row->cnt;
+                }
+            }
+        }
+
+        return [
+            'dates'   => $dates,
+            'success' => $success,
+            'failed'  => $failed,
+        ];
+    }
+
+    /**
+     * 获取近12个月成功/失败趋势（兼容 PostgreSQL / MySQL）
+     * ✅ FIX: 加缓存，防止轮询时重复查询
+     * 跨年时仅对 1 月补年份显示
+     */
+    private function getMonthlyTrend(int $taskId): array
+    {
+        $cacheKey = "task_trend_monthly_{$taskId}";
+        $cacheTtl = 300; // 5分钟缓存（月度数据变化频率低）
+
+        return cache()->remember($cacheKey, $cacheTtl, function () use ($taskId) {
+            return $this->buildMonthlyTrend($taskId);
+        });
+    }
+
+    /**
+     * 构建月度趋势数据
+     */
+    private function buildMonthlyTrend(int $taskId): array
+    {
+        $months    = [];   // x轴显示标签
+        $monthKeys = [];   // 数据库匹配用 YYYY-MM
+        $success   = [];
+        $failed    = [];
+
+        $now = now();
+
+        // ✅ 判断是否跨年（近12个月里是否包含1月）
+        $crossYear = false;
+        for ($i = 11; $i >= 0; $i--) {
+            if (now()->subMonths($i)->month === 1) {
+                $crossYear = true;
+                break;
+            }
+        }
+
+        for ($i = 11; $i >= 0; $i--) {
+            $date = $now->copy()->subMonths($i);
+            $y    = $date->year;
+            $m    = $date->month;
+
+            // 匹配 key（始终 YYYY-MM）
+            $monthKeys[] = $date->format('Y-m');
+
+            // ✅ 显示标签：跨年且是1月时补年份
+            if ($crossYear && $m === 1) {
+                $months[] = $y . '年' . $m . '月';   // 如：2026年1月
+            } else {
+                $months[] = $m . '月';                // 如：2月、3月…
+            }
+
+            $success[] = 0;
+            $failed[]  = 0;
+        }
+
+        // ✅ 数据库方言适配
+        $dateFormat = DB::getDriverName() === 'pgsql'
+            ? "TO_CHAR(created_at, 'YYYY-MM')"
+            : "DATE_FORMAT(created_at, '%Y-%m')";
+
+        $rows = TaskScheduleRun::query()
+            ->selectRaw("{$dateFormat} as month")
+            ->selectRaw('state')
+            ->selectRaw('COUNT(*) as cnt')
+            ->where('task_id', $taskId)
+            ->where('created_at', '>=', $now->copy()->subMonths(12)->startOfMonth())
+            ->groupBy(DB::raw($dateFormat), 'state')
+            ->orderBy(DB::raw($dateFormat))
+            ->get();
+
+        foreach ($rows as $row) {
+            // ✅ 用 YYYY-MM 精确匹配，彻底避免跨年混淆
+            $idx = array_search($row->month, $monthKeys, true);
+
+            if ($idx !== false) {
+                if ($row->state == TaskState::SUCCESS->value) {
+                    $success[$idx] = (int) $row->cnt;
+                } elseif ($row->state == TaskState::FAILED->value) {
+                    $failed[$idx] = (int) $row->cnt;
+                }
+            }
+        }
+
+        return [
+            'months'  => $months,    // ['11月','12月','2026年1月','2月',…,'10月']
+            'success' => $success,
+            'failed'  => $failed,
+        ];
     }
 }
